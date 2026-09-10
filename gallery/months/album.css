@@ -82,7 +82,7 @@ html { background: #faf8f3; }
 .upload-notice { font-size: 13px; margin: 18px 0; color: var(--accent); overflow-wrap: anywhere; }
 .upload-notice[data-tone="error"] { color: #963c38; }
 .upload-notice:empty { margin: 0; }
-.family-album .month-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; margin-top: 26px; }
+.family-album .month-grid { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; margin-top: 22px; }
 .family-album .photo-card { aspect-ratio: 4/5; border: 0; border-radius: 12px; box-shadow: none; background: #eaece2; transition: opacity 150ms; }
 .family-album .photo-card:hover { transform: none; box-shadow: none; opacity: .94; }
 .family-album .media-shell-video { background: linear-gradient(145deg, #dfe5d5, #a9bba2); }
@@ -103,7 +103,7 @@ html { background: #faf8f3; }
   .family-album .shell { width: calc(100% - 40px); }
   .month-strip { grid-template-columns: repeat(6,minmax(0,1fr)); }
   .month-tab { min-height: 78px; gap: 7px; }
-  .family-album .month-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .family-album .month-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
 }
 @media (max-width: 540px) {
   .family-album .shell { width: calc(100% - 32px); }
@@ -147,6 +147,42 @@ html { background: #faf8f3; }
   .album-empty h3 { font-size: 23px; }
   .family-album .viewer-nav { display: flex; top: auto; bottom: 16px; transform: none; width: 44px; height: 44px; }
 }
+
+/* Empty pages stay selectable; softened numerals are paired with an explicit label. */
+.month-tab.is-empty:not(.is-selected) { background: #f5f4ef; border: 1px dashed #e1e2d8; color: #8b9286; }
+.month-tab.is-empty:not(.is-selected) strong { opacity: .5; filter: blur(.3px); }
+.month-tab.is-empty .month-dot { background: transparent; border: 1px solid #c7cdbf; }
+.month-tab.is-empty:hover strong, .month-tab.is-empty:focus-visible strong { filter: none; opacity: .9; }
+.month-tab { transition: background 180ms, border-color 180ms, color 180ms; }
+.growth-wheel { margin-top: 15px; padding: 0 2px; }
+.growth-heading { display: flex; align-items: center; justify-content: space-between; }
+.growth-heading .section-kicker { margin: 0; }
+.growth-controls { display: flex; gap: 4px; }
+.growth-controls button { width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--text); font-size: 19px; cursor: pointer; }
+.growth-controls button:hover { background: #eeeee5; }
+.growth-track { position: relative; display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; padding: 12px calc(50% - 40px) 8px; scrollbar-width: none; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
+.growth-track::-webkit-scrollbar { display: none; }
+.growth-frame { border: 0; background: none; padding: 0; flex: 0 0 80px; width: 80px; cursor: pointer; color: var(--muted); font: 700 10px Nunito, sans-serif; scroll-snap-align: center; opacity: .64; transform: scale(.91); transition: transform 230ms, opacity 230ms; }
+.growth-frame img { display: block; width: 80px; height: 96px; object-fit: cover; border-radius: 10px; background: #e8eade; }
+.growth-frame span { display: block; padding-top: 7px; white-space: nowrap; }
+.growth-frame.is-current { opacity: 1; transform: scale(1); color: var(--text); }
+.growth-frame:hover, .growth-frame:focus-visible { opacity: 1; }
+.family-album .photo-card { animation: photo-arrive 260ms ease-out both; animation-delay: var(--reveal-delay, 0ms); }
+@keyframes photo-arrive { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+.family-album .album-heading h2 { font-size: 36px; }
+.family-album .month-album { padding-top: 20px; }
+.family-album .album-upload { padding: 16px 18px; }
+@media (max-width: 540px) {
+  .family-album .month-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+  .growth-frame, .growth-frame img { width: 68px; }
+  .growth-frame { flex-basis: 68px; }
+  .growth-frame img { height: 82px; border-radius: 8px; }
+  .growth-track { padding-inline: calc(50% - 34px); gap: 10px; }
+  .growth-controls button { width: 44px; height: 44px; }
+  .family-album .media-shell-video .photo-play { width: 34px; height: 34px; font-size: 16px; }
+  .family-album .video-preview-label { bottom: 6px; left: 6px; font-size: 9px; padding: 3px 5px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .family-album *, .family-album *::before, .family-album *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

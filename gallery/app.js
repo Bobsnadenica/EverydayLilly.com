@@ -181,6 +181,12 @@
   }
 
   function getPhotoTimestamp(photo) {
+    // Backup exports name photos by the day taken; S3 modification dates are upload dates.
+    const taken = getPhotoStem(photo).match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T_ -])/);
+    if (taken) {
+      const date = new Date(`${taken[1]}-${taken[2]}-${taken[3]}T00:00:00Z`);
+      if (date.getUTCFullYear() === Number(taken[1]) && date.getUTCMonth() + 1 === Number(taken[2]) && date.getUTCDate() === Number(taken[3])) return date.getTime();
+    }
     const timestamp = Date.parse(photo?.lastModified || "");
     return Number.isFinite(timestamp) ? timestamp : null;
   }
@@ -352,7 +358,8 @@
 
     if (kind === "movie") {
       return `
-        <div class="media-shell media-shell-video" data-video-preview="${escapeHtml(photo.url)}">
+        <div class="media-shell media-shell-video">
+          ${photo.thumbnailUrl ? `<img src="${escapeHtml(photo.thumbnailUrl)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async">` : ""}
           <span class="video-preview-label">Видео</span>
           <span class="photo-play" aria-hidden="true">&#9654;</span>
         </div>
@@ -364,7 +371,7 @@
 
     return `
       <div class="media-shell">
-        <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(title)}"${loading} decoding="async"${fetchPriority}>
+        <img src="${escapeHtml(photo.thumbnailUrl || photo.url)}" alt="${escapeHtml(title)}"${loading} decoding="async"${fetchPriority}>
       </div>
     `;
   }
@@ -400,115 +407,88 @@
     `;
   }
 
-  function createVideoPreviews() {
-    // Canvases stay inside this authenticated page. No private frames or signed
-    // URLs are persisted. Drawing cross-origin media needs no pixel readback.
-    const frames = new Map();
-    const active = new Set();
-    let observer;
-    let queue = [];
-
-    function show(shell, frame) {
-      const canvas = document.createElement("canvas");
-      canvas.width = frame.width;
-      canvas.height = frame.height;
-      canvas.setAttribute("aria-hidden", "true");
-      canvas.getContext("2d").drawImage(frame, 0, 0);
-      shell.prepend(canvas);
-      shell.classList.add("has-video-preview");
-    }
-
-    function pump() {
-      while (active.size < 2 && queue.length) {
-        const shell = queue.shift();
-        if (!shell.isConnected) continue;
-        const url = shell.dataset.videoPreview;
-        if (frames.has(url)) { show(shell, frames.get(url)); continue; }
-        const video = document.createElement("video");
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = "metadata";
-        let done = false;
-        let target = 0;
-        const timer = setTimeout(() => finish(), 15000);
-        function finish(frame) {
-          if (done) return;
-          done = true;
-          clearTimeout(timer);
-          video.onloadedmetadata = video.onloadeddata = video.onseeked = video.onerror = null;
-          video.pause();
-          video.removeAttribute("src");
-          video.load();
-          active.delete(cancel);
-          if (frame && shell.isConnected) {
-            frames.set(url, frame);
-            if (frames.size > 40) frames.delete(frames.keys().next().value);
-            show(shell, frame);
-          } else if (shell.isConnected) {
-            shell.querySelector(".video-preview-label").textContent = "Отвори видеото";
-          }
-          pump();
-        }
-        function cancel() { finish(); }
-        function capture() {
-          if (done || video.readyState < 2 || video.seeking || !video.videoWidth) return;
-          try {
-            const frame = document.createElement("canvas");
-            const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
-            frame.width = Math.max(1, Math.round(video.videoWidth * scale));
-            frame.height = Math.max(1, Math.round(video.videoHeight * scale));
-            frame.getContext("2d").drawImage(video, 0, 0, frame.width, frame.height);
-            finish(frame);
-          } catch (error) { finish(); }
-        }
-        active.add(cancel);
-        video.onloadedmetadata = () => {
-          target = Number.isFinite(video.duration) ? Math.min(0.1, video.duration / 2) : 0;
-          if (target > 0) video.currentTime = target;
-          else capture();
-        };
-        video.onloadeddata = () => { if (video.currentTime >= target) capture(); };
-        video.onseeked = capture;
-        video.onerror = () => finish();
-        // Never play: fetch just enough to decode a still, then release the source.
-        // Actual transfer size depends on the video's container and browser.
-        video.src = url;
-        video.load();
-      }
-    }
-
-    function reset(clearCache = false) {
-      observer?.disconnect();
-      queue = [];
-      for (const cancel of [...active]) cancel();
-      if (clearCache) frames.clear();
-    }
-
-    function mount(content) {
-      const shells = content.querySelectorAll("[data-video-preview]");
-      observer = typeof IntersectionObserver === "function" ? new IntersectionObserver(entries => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          observer.unobserve(entry.target);
-          queue.push(entry.target);
-        }
-        pump();
-      }, { rootMargin: "200px" }) : null;
-      for (const shell of shells) {
-        const frame = frames.get(shell.dataset.videoPreview);
-        if (frame) show(shell, frame);
-        else if (observer) observer.observe(shell);
-        else queue.push(shell);
-      }
-      pump();
-    }
-    return { mount, reset };
-  }
-
   function getMonthItems(state, month) {
     const hero = getMonthHero(state, month);
     const photos = getMonthPhotos(state, month);
     return hero ? [hero, ...photos.filter(photo => photo.key !== hero.key)] : photos;
+  }
+
+  function getGrowthPhotos(state) {
+    const seen = new Set();
+    return Array.from({ length: GALLERY_MONTH_COUNT }, (_, month) =>
+      getMonthItems(state, month).filter(photo => getMediaKind(photo) !== "movie")
+        .sort(comparePhotosByDate).map(photo => ({ photo, month }))
+    ).flat().filter(({ photo }) => {
+      if (seen.has(photo.key)) return false;
+      seen.add(photo.key);
+      return true;
+    });
+  }
+
+  function buildGrowthWheel(state) {
+    const photos = getGrowthPhotos(state);
+    if (!photos.length) return "";
+    return `<section class="growth-wheel" aria-label="Лили расте — от първата до последната снимка">
+      <div class="growth-heading"><span class="section-kicker">Лили расте</span><div class="growth-controls">
+        <button type="button" data-growth-step="-1" aria-label="По-ранни снимки">←</button>
+        <button type="button" data-growth-step="1" aria-label="По-нови снимки">→</button>
+      </div></div>
+      <div class="growth-track" tabindex="0" aria-label="Плъзни за още спомени; използвай стрелките за навигация">
+        ${photos.map(({ photo, month }, index) => `<button type="button" class="growth-frame" data-growth-index="${index}" data-growth-month="${month}"
+          data-photo-trigger data-photo-group="growth" data-photo-kind="${getMediaKind(photo)}"
+          data-photo-src="${escapeHtml(photo.url)}" data-photo-label="Месец ${month + 1} · Спомен ${index + 1}"
+          aria-label="Отвори Месец ${month + 1} · Спомен ${index + 1}">
+          <img src="${escapeHtml(photo.thumbnailUrl || photo.url)}" alt="" loading="lazy" decoding="async" width="80" height="96">
+          <span>Месец ${month + 1}</span></button>`).join("")}
+      </div>
+    </section>`;
+  }
+
+  function setupGrowthWheel(content, state) {
+    const track = content.querySelector(".growth-track");
+    if (!track) return;
+    const frames = [...track.querySelectorAll(".growth-frame")];
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const step = () => frames.length > 1 ? frames[1].offsetLeft - frames[0].offsetLeft : 92;
+    frames.forEach(frame => { frame.tabIndex = -1; });
+    let current = -1;
+    let scheduled = false;
+    function update() {
+      scheduled = false;
+      const next = Math.max(0, Math.min(frames.length - 1, Math.round(track.scrollLeft / step())));
+      if (current >= 0) { frames[current].classList.remove("is-current"); frames[current].tabIndex = -1; }
+      frames[next].classList.add("is-current");
+      frames[next].tabIndex = 0;
+      current = next;
+      state.growthIndex = next;
+      content.querySelector('[data-growth-step="-1"]').disabled = next === 0;
+      content.querySelector('[data-growth-step="1"]').disabled = next === frames.length - 1;
+    }
+    function move(delta) {
+      track.scrollTo({ left: Math.max(0, Math.min(frames.length - 1, current + delta)) * step(), behavior: reducedMotion ? "instant" : "smooth" });
+    }
+    content.querySelectorAll("[data-growth-step]").forEach(button => {
+      button.addEventListener("click", () => move(Number(button.dataset.growthStep) * 3));
+    });
+    track.addEventListener("scroll", () => {
+      if (!scheduled) { scheduled = true; requestAnimationFrame(update); }
+    }, { passive: true });
+    track.addEventListener("keydown", event => {
+      if (["Enter", " "].includes(event.key) && event.target === track) { event.preventDefault(); frames[current].click(); return; }
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      track.focus({ preventScroll: true });
+      move(event.key === "Home" ? -frames.length : event.key === "End" ? frames.length : event.key === "ArrowRight" ? 1 : -1);
+    });
+    track.addEventListener("wheel", event => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      const end = track.scrollWidth - track.clientWidth;
+      if ((event.deltaY < 0 && track.scrollLeft <= 0) || (event.deltaY > 0 && track.scrollLeft >= end - 1)) return;
+      event.preventDefault();
+      track.scrollLeft += event.deltaY;
+    }, { passive: false });
+    track.scrollLeft = (state.growthIndex || 0) * step();
+    update();
   }
 
   function renderMonthDetail(content, state) {
@@ -532,13 +512,14 @@
           ${Array.from({ length: 12 }, (_, i) => {
             const m = (year - 1) * 12 + i;
             const count = getMonthItems(state, m).length;
-            return `<button type="button" class="month-tab${m === month ? " is-selected" : ""}" data-month-trigger="${m}" aria-pressed="${m === month}" aria-label="Месец ${m + 1}, ${count} ${count === 1 ? "спомен" : "спомена"}" ${locked ? "disabled" : ""}>
+            return `<button type="button" class="month-tab${m === month ? " is-selected" : ""}${count ? "" : " is-empty"}" data-month-trigger="${m}" aria-pressed="${m === month}" aria-label="Месец ${m + 1}, ${count ? `${count} ${count === 1 ? "спомен" : "спомена"}` : "няма снимки"}" title="${count ? `${count} спомена` : "Още няма снимки"}" ${locked ? "disabled" : ""}>
               <span class="month-tab-label">МЕСЕЦ</span><strong>${String(m + 1).padStart(2, "0")}</strong>
               <span class="month-dot${count ? " has-memories" : ""}" aria-hidden="true"></span>
             </button>`;
           }).join("")}
         </div>
       </nav>
+      ${buildGrowthWheel(state)}
       <section class="month-album" aria-labelledby="month-title">
         <div class="album-heading">
           <div><p class="section-kicker">${getTimelineLabel(month)}</p><h2 id="month-title" tabindex="-1">Месец ${month + 1}<span class="heading-dot">.</span></h2>
@@ -556,7 +537,7 @@
             <div id="upload-queue" class="upload-queue"></div>
           </section>` : `<p class="viewer-note">Разглеждаш семейния албум. Снимки могат да добавят администраторите.</p>`}
         <p id="upload-notice" class="upload-notice" role="status" data-tone="${state.uploadNotice?.tone || ""}">${escapeHtml(state.uploadNotice?.message || "")}</p>
-        ${items.length ? `<div class="month-grid">${items.map((photo, i) => buildPhotoCardMarkup(photo, {title: `Месец ${month + 1} · Спомен ${i + 1}`, showMeta: false, priority: i === 0})).join("")}</div>` : `
+        ${items.length ? `<div class="month-grid">${items.map((photo, i) => buildPhotoCardMarkup(photo, {title: `Месец ${month + 1} · Спомен ${i + 1}`, showMeta: false, priority: i === 0, style: `--reveal-delay:${Math.min(i, 7) * 18}ms`})).join("")}</div>` : `
           <div class="album-empty"><span class="empty-flower" aria-hidden="true">✿</span><h3>Малките мигове започват тук.</h3><p>${canUploadToGallery(state) ? `Добави първите снимки за Месец ${month + 1}.<br>Те ще се появят само на тази страница.` : "Този месец още очаква своите първи снимки."}</p></div>`}
         <p class="album-footnote">Месец ${month + 1} от 60 <span aria-hidden="true">·</span> Малко по малко, цял един свят.</p>
       </section>`;
@@ -681,11 +662,12 @@
     const viewerNext = viewer.querySelector(".viewer-nav-next");
     let lastTrigger = null;
     let currentIndex = -1;
+    let activeGroup = "month";
     let touchStartX = 0;
     let touchStartY = 0;
 
     function getTriggers() {
-      return [...content.querySelectorAll("[data-photo-trigger]")];
+      return [...content.querySelectorAll("[data-photo-trigger]")].filter(node => (node.dataset.photoGroup || "month") === activeGroup);
     }
 
     function updateViewerNavigation(total) {
@@ -783,6 +765,7 @@
     }
 
     function openViewer(trigger) {
+      activeGroup = trigger.dataset.photoGroup || "month";
       const triggers = getTriggers();
       const index = triggers.indexOf(trigger);
       renderViewerAt(index >= 0 ? index : 0);
@@ -1004,8 +987,19 @@
     let session = await auth.getSession();
     if (!session) { window.location.replace("/"); return; }
     const account = getAccountKey(session);
-    const videoPreviews = createVideoPreviews();
     const state = { requestedCollection, actualCollection: requestedCollection, selectedMonth: null, activeFilter: "all", manifest: null, uploadQueue: [], uploading: false, loading: false, uploadNotice: null };
+
+    let thumbnailRefreshTimer;
+
+    function scheduleThumbnailRefresh(attempt = 0) {
+      clearTimeout(thumbnailRefreshTimer);
+      if (attempt >= 3 || !state.manifest?.photos.some(photo => !photo.thumbnailUrl)) return;
+      thumbnailRefreshTimer = setTimeout(async () => {
+        if (state.uploading || state.uploadQueue.length) return;
+        await loadManifest();
+        scheduleThumbnailRefresh(attempt + 1);
+      }, 4000);
+    }
 
     function clearQueue() {
       state.uploadQueue.forEach(item => { if (item.preview) URL.revokeObjectURL(item.preview); });
@@ -1015,7 +1009,7 @@
     async function currentSession() {
       const next = await auth.getSession();
       if (!next || getAccountKey(next) !== account) {
-        videoPreviews.reset(true);
+        clearTimeout(thumbnailRefreshTimer);
         clearQueue();
         dismissViewer();
         content.replaceChildren();
@@ -1027,9 +1021,8 @@
     }
 
     function render() {
-      videoPreviews.reset();
       renderGalleryState(content, status, state);
-      videoPreviews.mount(content);
+      setupGrowthWheel(content, state);
       if (refreshButton) refreshButton.disabled = state.uploading || state.loading || state.uploadQueue.length > 0;
     }
 
@@ -1044,7 +1037,7 @@
 
     document.getElementById("gallery-signout")?.addEventListener("click", () => {
       if (state.uploading) return;
-      videoPreviews.reset(true);
+      clearTimeout(thumbnailRefreshTimer);
       clearQueue();
       auth.signOut({ logoutUri: `${window.location.origin}/` });
     });
@@ -1058,8 +1051,8 @@
             if (stored && getAccountKey(stored) === account) return;
           } catch (error) {}
         }
+        clearTimeout(thumbnailRefreshTimer);
         clearQueue();
-        videoPreviews.reset(true);
         dismissViewer();
         content.replaceChildren();
         window.location.replace("/");
@@ -1068,7 +1061,7 @@
     window.addEventListener("beforeunload", event => {
       if (state.uploading || state.uploadQueue.length) { event.preventDefault(); event.returnValue = ""; }
     });
-    window.addEventListener("pagehide", () => videoPreviews.reset(true));
+    window.addEventListener("pagehide", () => clearTimeout(thumbnailRefreshTimer));
 
     async function loadManifest() {
       if (state.loading) return;
@@ -1095,7 +1088,6 @@
         enableViewer(content);
       } catch (error) {
         if (error.status === 401 || error.status === 403 || !state.manifest) {
-          videoPreviews.reset(true);
           state.manifest = null;
           clearQueue();
           dismissViewer();
@@ -1162,6 +1154,7 @@
       if (signout) signout.disabled = false;
       state.uploadNotice = { tone: failed.length ? "error" : "success", message: `${uploaded} ${uploaded === 1 ? "качен файл" : "качени файла"} в Месец ${month + 1}.${duplicate ? ` ${duplicate} вече са в албума.` : ""}${failed.length ? ` ${failed.length} ${failed.length === 1 ? "файл не успя" : "файла не успяха"}. Можеш да опиташ отново.` : ""}` };
       if (uploaded || duplicate) await loadManifest();
+      if (uploaded) scheduleThumbnailRefresh();
       if (state.manifest) render();
     }
 

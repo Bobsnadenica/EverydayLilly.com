@@ -13,3 +13,6 @@ app/backend/**/plan.out
 
 # Security: Never commit private keys or certificates
 *.pem
+
+app/backend/**/package.zip
+__pycache__/

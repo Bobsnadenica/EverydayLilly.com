@@ -14,7 +14,7 @@ function harness({ query = '', saved, response, environment = {} } = {}) {
     fetch: async (url, options) => { requests.push({url, options}); return response; },
     ...environment
   });
-  vm.runInContext(source.replace('  document.addEventListener("DOMContentLoaded"', '  window.testing = { getInitialMonth, getMonthItems, fetchManifest, rememberMonth, buildMediaMarkup, createVideoPreviews };\n  document.addEventListener("DOMContentLoaded"'), context);
+  vm.runInContext(source.replace('  document.addEventListener("DOMContentLoaded"', '  window.testing = { getInitialMonth, getMonthItems, fetchManifest, rememberMonth, buildMediaMarkup, getGrowthPhotos, renderMonthDetail };\n  document.addEventListener("DOMContentLoaded"'), context);
   return { ...context.window.testing, requests, storage };
 }
 const session = { claims: { iss: 'issuer', sub: 'parent' }, tokens: { id_token: 'test-token' } };
@@ -55,10 +55,11 @@ test('malformed success payload fails closed', async () => {
   const h=harness({response:{ok:true,json:async()=>({collection:'months',photos:[]})}});
   await assert.rejects(h.fetchManifest(session));
 });
-test('video tiles defer media requests until the preview loader observes them', () => {
-  const markup=harness().buildMediaMarkup({kind:'movie',url:'https://media.example.com/private.mp4'},'Movie',false);
+test('video tiles use stored image previews without decoding video in the grid', () => {
+  const markup=harness().buildMediaMarkup({kind:'movie',url:'https://media.example.com/private.mp4',thumbnailUrl:'https://media.example.com/preview.jpg'},'Movie',false);
   assert.doesNotMatch(markup,/<video|autoplay/);
-  assert.match(markup,/data-video-preview="https:\/\/media.example.com\/private.mp4"/);
+  assert.match(markup,/src="https:\/\/media.example.com\/preview.jpg"/);
+  assert.doesNotMatch(markup,/src="https:\/\/media.example.com\/private.mp4"/);
 });
 test('auth clearing removes legacy gallery caches and preserves only month preference', () => {
   const storage={ 'everydayLillyAuth:session':'old', 'everyday-lilly.gallery-manifest.months':'private', 'everyday-lilly.gallery-refresh.months':'old-version', 'lilly.album.month.issuer:parent':'4' };
@@ -69,79 +70,30 @@ test('auth clearing removes legacy gallery caches and preserves only month prefe
   assert.deepEqual(Object.keys(storage),['lilly.album.month.issuer:parent']);
 });
 
-function previewHarness() {
-  const videos = [], observers = [], timers = new Set();
-  const document = {
-    addEventListener() {},
-    createElement(tag) {
-      if (tag === 'canvas') return { setAttribute() {}, getContext: () => ({drawImage() {}}) };
-      const video = { readyState: 2, videoWidth: 1920, videoHeight: 1080, duration: 5, currentTime: 0,
-        load() {}, pause() {}, removeAttribute(key) { delete this[key]; } };
-      videos.push(video);
-      return video;
-    }
-  };
-  class IntersectionObserver {
-    constructor(callback) { this.callback = callback; this.targets = []; observers.push(this); }
-    observe(target) { this.targets.push(target); }
-    unobserve() {}
-    disconnect() { this.disconnected = true; }
-  }
-  const preview = harness({environment:{ document, IntersectionObserver,
-    setTimeout(callback) { timers.add(callback); return callback; },
-    clearTimeout(callback) { timers.delete(callback); }
-  }}).createVideoPreviews();
-  function shell(url) {
-    return { isConnected: true, dataset: {videoPreview:url}, label:{}, canvases:[],
-      classList: { add() {} }, prepend(canvas) { this.canvases.push(canvas); },
-      querySelector() { return this.label; } };
-  }
-  function mount(shells) { preview.mount({querySelectorAll:()=>shells}); }
-  function visible(shells) { observers.at(-1).callback(shells.map(target=>({target,isIntersecting:true}))); }
-  function decoded(video) { video.onloadedmetadata(); video.onseeked(); }
-  return { preview, videos, observers, timers, shell, mount, visible, decoded };
-}
 
-test('previews wait for visibility, cap decoding at two, and release each source', () => {
-  const h=previewHarness(), shells=['a','b','c'].map(h.shell);
-  h.mount(shells);
-  assert.equal(h.videos.length,0);
-  h.visible(shells);
-  assert.equal(h.videos.length,2);
-  h.decoded(h.videos[0]);
-  assert.equal(h.videos[0].src,undefined);
-  assert.equal(h.videos.length,3);
-  assert.equal(shells[0].canvases[0].width,480);
-  assert.equal(shells[0].canvases[0].height,270);
-  assert.equal(h.videos[0].currentTime,0.1);
-  h.preview.reset(true);
-  assert.equal(h.timers.size,0);
-  assert.ok(h.videos.every(video=>!video.src));
+test('growth wheel is chronological across months and excludes videos and duplicates', () => {
+  const h=harness();
+  const state={manifest:{photos:[{key:'months/4/new.jpg'},{key:'months/0/old.jpg'},{key:'months/1/video.mov',kind:'movie'},{key:'months/0/old.jpg'}],heroPhotos:[]}};
+  assert.deepEqual(Array.from(h.getGrowthPhotos(state),x=>x.month),[0,4]);
 });
-
-test('month revisits reuse frames; clearing the account cache requires decoding again', () => {
-  const h=previewHarness(), first=h.shell('same-signed-url');
-  h.mount([first]); h.visible([first]); h.decoded(h.videos[0]);
-  h.preview.reset();
-  const revisit=h.shell('same-signed-url'); h.mount([revisit]);
-  assert.equal(revisit.canvases.length,1);
-  assert.equal(h.videos.length,1);
-  h.preview.reset(true);
-  const nextAccount=h.shell('same-signed-url'); h.mount([nextAccount]);
-  assert.equal(nextAccount.canvases.length,0);
-  h.visible([nextAccount]);
-  assert.equal(h.videos.length,2);
-  h.preview.reset(true);
+test('dated backup filenames sort by day taken even when uploaded in reverse order', () => {
+  const h = harness();
+  const photos = [
+    {key:'months/0/2025-06-08.jpg',lastModified:'2026-09-01'},
+    {key:'months/0/2025-06-01.jpg',lastModified:'2026-09-02'}
+  ];
+  assert.deepEqual(Array.from(h.getGrowthPhotos({manifest:{photos,heroPhotos:[]}}), x=>x.photo.key),
+    ['months/0/2025-06-01.jpg','months/0/2025-06-08.jpg']);
 });
-
-test('unreadable or stalled videos show a fallback and allow the queue to continue', () => {
-  const h=previewHarness(), shells=['bad','slow','next'].map(h.shell);
-  h.mount(shells); h.visible(shells);
-  h.videos[0].onerror();
-  assert.equal(shells[0].label.textContent,'Отвори видеото');
-  assert.equal(h.videos.length,3);
-  const timeout=[...h.timers][0]; timeout();
-  assert.equal(shells[1].label.textContent,'Отвори видеото');
-  h.preview.reset(true);
-  assert.equal(h.timers.size,0);
+test('photo tiles prefer small previews while original URLs remain available to the viewer', () => {
+  const html=harness().buildMediaMarkup({url:'https://media.example.com/full.jpg',thumbnailUrl:'https://media.example.com/small.jpg'},'Photo',false);
+  assert.match(html,/src="https:\/\/media.example.com\/small.jpg"/);
+  assert.match(html,/loading="lazy"/);
+});
+test('empty month buttons remain selectable with an explicit accessible empty state', () => {
+  const h=harness({environment:{document:{addEventListener(){},getElementById(){return null;}}}});
+  const content={};
+  h.renderMonthDetail(content,{manifest,selectedMonth:0,actualCollection:'months',uploadQueue:[],uploading:false});
+  assert.match(content.innerHTML,/class="month-tab is-empty" data-month-trigger="1"[^>]*aria-label="Месец 2, няма снимки"/);
+  assert.doesNotMatch(content.innerHTML,/data-month-trigger="1"[^>]*disabled/);
 });

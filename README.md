@@ -4,15 +4,29 @@ Static website and private family photo vault for [www.everydaylilly.com](https:
 
 Architecture and live AWS configuration reviewed on **2026-09-10 (Europe/Sofia)**. The backend is deployed, not a future scaffold. The Flutter source described in older documentation is **not present in this checkout**.
 
+## Gallery polish and stored previews — 2026-09-11
+
+Empty months have faded numerals, a subtle blur and an outlined marker; they remain selectable for uploads. A small horizontal growth carousel sits below the month selector, ordered from the first month to the last. Dated backup filenames use their capture day for sorting; other files retain the existing modification-date/name fallback. Swipe, scroll, arrow buttons and keyboard navigation are supported, and tapping a frame opens the original in the viewer.
+
+The selected-month grid now uses four desktop columns and three mobile columns, with short entrance animations and reduced-motion support. Its upload destination remains the selected month.
+
+Video tiles use stored JPEG posters instead of asking the browser to decode a video. A new S3-triggered Lambda generates private previews up to 640 pixels for monthly photos and videos. The manifest signs these preview URLs separately; the grid and growth strip lazy-load them, while the viewer opens originals. Immutable content-based keys preserve cache hits. New uploads trigger generation automatically, with a bounded metadata refresh after upload.
+
+Production backfill completed for all 455 existing media objects, including eight videos. S3 key, size and ETag comparisons confirmed all originals were unchanged. The entire preview set is about 14.7 MB. Authorized live checks returned every original with a preview; all eight video posters returned JPEGs, and unsigned preview access returned 403.
+
+The [backend runbook](app/backend/README.md) describes the isolated AWS deployment and the Terraform state imports required before a future full apply. The manifest signer now parses its key once per warm runtime and has additional CPU capacity for signing original and preview URLs; the final live request completed in 2.88 seconds. Existing signing keys and gallery access rules are retained.
+
+Validation: 15 JavaScript regression tests, five Python worker tests, syntax/format checks, desktop/mobile browser checks, and live S3/API checks. Browser layout checks used clearly labeled synthetic media; private family media was not sent to design tools.
+
 ## Monthly family album — 2026-09-10
 
 The gallery now opens directly into one month, with a warm ivory/green album layout, a 12-month selector, and a five-year switcher. It restores the last selected month for the current account; a new account starts at the latest populated month (or Month 1 for an empty album). `?month=1` through `?month=60` links override the remembered selection.
 
-- Only the selected month's media is rendered, including existing cover images. Navigating months reuses the authorized manifest in memory and does not call the API again.
+- The main grid renders only the selected month's media, including existing cover images; the growth strip above it spans the album. Navigating months reuses the authorized manifest in memory and does not call the API again.
 - Admins select or drop multiple files, review their filenames/previews and destination month, then confirm the batch. There is no required cover-photo step. The first regular photo can represent the month, and existing dedicated covers remain visible.
 - The destination is locked while files are queued/uploading. Completed batches stay in that month; duplicate filenames are skipped, successful files appear after one manifest refresh, and only failed files remain for retry.
 - A new page visit checks authorization with the backend. Signed manifests are no longer persisted in browser storage. Auth session changes clear legacy caches, and logout/account-change events remove the open gallery in other tabs. Each API action reacquires a valid session.
-- Media URLs stay stable when refreshing metadata or finishing uploads, preserving browser/CloudFront cache hits. Images are lazy-loaded. Video tiles show still-frame previews decoded near the viewport, at most two at a time, without autoplay. The decoder releases its video source after capturing a frame. Up to 40 previews are reused in page memory when switching months and cleared on sign-out/account changes. Preview transfers depend on browser/container behavior; full-size originals are still served, with no thumbnail service, transcoding, or storage-format changes. Unsupported videos retain a labeled play tile.
+- Media URLs stay stable when refreshing metadata or finishing uploads, preserving browser/CloudFront cache hits. The stored-preview update above replaces the original browser-decoded video approach. Originals remain available in the viewer.
 - HEIC is not supported by the existing backend; the uploader explains which formats it accepts and asks for JPG export. Files are not silently compressed or converted.
 
 [Figma design direction](https://www.figma.com/design/uS7zZItz2W003PrCbyu8G9?node-id=2-2) uses an empty album state and contains no private family photos.
@@ -21,7 +35,7 @@ Validation: `node --test tests/gallery.test.cjs` (11 tests), JavaScript syntax c
 
 GitHub Pages publishes the repository root from `main`; this release includes the album CSS and updated auth/gallery scripts together. No Terraform apply is required for these frontend changes. Real S3 upload behavior was not re-tested by writing production family media. The backend's long-lived signed-URL/revocation finding below remains unresolved.
 
-Video-preview follow-up: synthetic cross-origin MP4s rendered real still frames on desktop and at 390×844, playback opened correctly, and revisiting a month reused decoded frames. Regression tests cover visibility gating, concurrency, source cleanup, cache isolation, and failure/timeout fallback. Device-specific codecs such as HEVC were not certified.
+Historical video-preview follow-up: the browser-decoded approach passed synthetic MP4 checks but did not consistently display the owner's videos. The stored JPEG preview deployment above supersedes it.
 
 ## Where the backend lives
 
@@ -33,6 +47,7 @@ Video-preview follow-up: synthetic cross-origin MP4s rendered real still frames 
 | Vault sign-in | Amazon Cognito Hosted UI, OAuth authorization code with PKCE | `auth/auth.js`, `auth/callback.html`, root `script.js` |
 | Gallery API | API Gateway HTTP API with JWT authorization | `app/backend/live/prod/gallery_api.tf` |
 | Backend application code | Node.js 22 Lambda, `everyday-lilly-vault-prod-gallery-manifest` | `app/backend/live/prod/lambda/gallery_manifest/index.mjs` |
+| Preview generation | Python 3.12 Lambda with FFmpeg, triggered by monthly S3 uploads | `app/backend/live/prod/gallery_thumbnails.tf` |
 | Private media delivery | CloudFront signed URLs and a private S3 gallery bucket | `app/backend/live/prod/main.tf` |
 | Long-term originals | Separate private S3 archive bucket with Deep Archive lifecycle | `app/backend/live/prod/main.tf` |
 | Infrastructure | Terraform, AWS/archive/random providers | `app/backend/live/prod/` |
@@ -120,7 +135,8 @@ Open [localhost:8000](http://localhost:8000/). Prefer `localhost` to the numeric
 Useful non-deploying checks:
 
 ```bash
-node --test tests/gallery.test.cjs
+node --test tests/*.test.cjs
+python3 -m unittest discover -s tests -p 'test_*.py'
 node --check script.js
 node --check auth/auth.js
 node --check gallery/app.js

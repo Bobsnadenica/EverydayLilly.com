@@ -110,8 +110,8 @@ resource "aws_lambda_function" "gallery_manifest" {
   handler          = "index.handler"
   filename         = data.archive_file.gallery_manifest_lambda.output_path
   source_code_hash = data.archive_file.gallery_manifest_lambda.output_base64sha256
-  timeout          = 10
-  memory_size      = 256
+  timeout          = 15
+  memory_size      = 1024
 
   environment {
     variables = {

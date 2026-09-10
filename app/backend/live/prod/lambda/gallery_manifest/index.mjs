@@ -48,7 +48,7 @@ function getPrivateKey() {
     return cachedPrivateKey;
   }
   try {
-    cachedPrivateKey = fs.readFileSync(path.join(__dirname, "gallery_private_key.pem"), "utf8");
+    cachedPrivateKey = crypto.createPrivateKey(fs.readFileSync(path.join(__dirname, "gallery_private_key.pem"), "utf8"));
     return cachedPrivateKey;
   } catch (error) {
     console.error("Unable to read local private key.", error);
@@ -229,6 +229,7 @@ async function listGalleryItems(prefix) {
           key: item.Key,
           lastModified: item.LastModified ? item.LastModified.toISOString() : null,
           size: item.Size ?? null,
+          etag: String(item.ETag || "").replaceAll('"', ""),
         });
       }
     }
@@ -274,6 +275,11 @@ function compareGalleryKeys(left, right) {
 function buildLabel(key) {
   const filename = key.split("/").pop() || key;
   return filename.replace(/\.[^.]+$/, "");
+}
+
+export function thumbnailKey(item, prefix) {
+  const digest = crypto.createHash("sha256").update(`${item.key}\n${item.etag}`).digest("hex");
+  return `previews/${prefix}/${digest}.jpg`;
 }
 
 async function buildSignedMedia(item, expiresAtEpochSeconds, cacheVersion) {
@@ -558,12 +564,17 @@ async function handleManifest(event, claims) {
   const prefix = isTest ? testPrefix : defaultPrefix;
   const heroPrefix = `${prefix}/hero`;
   const items = await listGalleryItems(prefix);
+  const previews = new Set((await listGalleryItems(`previews/${prefix}`)).map(item => item.key));
   const expiresAtEpochSeconds = getStableExpiryEpochSeconds();
   const photos = [];
   const heroPhotos = [];
 
   for (const item of items) {
     const signedMedia = await buildSignedMedia(item, expiresAtEpochSeconds, cacheVersion);
+    const previewKey = thumbnailKey(item, prefix);
+    if (previews.has(previewKey)) {
+      signedMedia.thumbnailUrl = (await buildSignedMedia(previewKey, expiresAtEpochSeconds, cacheVersion)).url;
+    }
     if (item.key.startsWith(heroPrefix)) {
       heroPhotos.push(signedMedia);
     } else {

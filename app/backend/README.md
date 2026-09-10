@@ -1,14 +1,48 @@
 # Everyday Lilly vault backend
 
-Verified against repository source and read-only AWS APIs on **2026-09-10 (Europe/Sofia)**.
+Initial review: **2026-09-10**. Stored-preview deployment and live verification: **2026-09-11 (Europe/Sofia)**.
 
 The vault is a deployed, Terraform-managed AWS serverless backend in **eu-central-1 (Frankfurt)**. The public site is hosted on GitHub Pages and calls Cognito directly. No Amplify integration is used by this repository.
 
-## Frontend follow-up — 2026-09-10
+## Stored preview deployment — 2026-09-11
+
+`lambda/gallery_thumbnails/handler.py` runs as `everyday-lilly-vault-prod-gallery-thumbnails` (Python 3.12, x86_64, 1024 MB, 150-second timeout). S3 object-created events under `months/` generate JPEG previews with FFmpeg. Preview keys are `previews/months/<sha256(original-key + newline + unquoted-etag)>.jpg`, outside the event prefix to prevent recursion. Outputs contain no copied metadata, fit within 640 × 640 pixels, and use conditional PUT plus immutable caching. Source objects are only read.
+
+`gallery_thumbnails.tf` records the worker, its IAM role/policy/log attachment, S3 invoke permission, bucket notification and 14-day log retention. IAM permits reading monthly originals and writing only the preview prefix. Generation is idempotent. No reserved concurrency is configured; the controlled backfill used two concurrent invocations.
+
+The manifest lists original and preview prefixes separately, signs the matching previews as `thumbnailUrl`, and keeps derived files out of album counts. CloudFront's existing trusted key group and private S3 origin protect previews. The browser uses small images in the grid/carousel and loads originals in the viewer. The test collection is outside the thumbnail event prefix. Stable signed URLs and content-based preview keys support caching; refresh does not force a new media version. The existing long-lived signed-URL caveat remains.
+
+Signing twice as many URLs exposed the old 10-second API Lambda limit. The signer now parses the private key once per warm runtime; the API Lambda uses 1024 MB for more signing CPU and a 15-second timeout. JWT and role checks still run for each manifest request.
+
+Build the worker package from the repository root:
+
+```bash
+python3 scripts/build-gallery-thumbnails.py app/backend/live/prod/lambda/gallery_thumbnails/package.zip
+```
+
+The builder downloads the pinned imageio-ffmpeg 0.6.0 Linux wheel from PyPI, verifies its SHA-256, and packages the executable, licenses and handler. The ZIP is ignored by Git. No family media or credentials belong in a package.
+
+This was an **isolated AWS deployment, with no Terraform plan/apply**. The API package was downloaded from the existing Lambda and its code SHA verified; only `index.mjs` was replaced, preserving the deployed signing-key files. Authoritative Terraform state, variables and standalone PEM files remain absent locally. Before a future full apply, recover them as described below, then import/reconcile these already-existing resources:
+
+| Terraform address | Existing resource |
+| --- | --- |
+| `aws_iam_role.gallery_thumbnails` | `everyday-lilly-vault-prod-gallery-thumbnails-lambda` |
+| `aws_iam_role_policy.gallery_thumbnails` | Role above, inline policy `gallery-previews` |
+| `aws_iam_role_policy_attachment.gallery_thumbnails_logs` | Role above, `AWSLambdaBasicExecutionRole` |
+| `aws_lambda_function.gallery_thumbnails` | `everyday-lilly-vault-prod-gallery-thumbnails` |
+| `aws_lambda_permission.gallery_thumbnails_s3` | Function above, statement `AllowGalleryThumbnailEvents` |
+| `aws_s3_bucket_notification.gallery_thumbnails` | Existing gallery bucket notification configuration |
+| `aws_cloudwatch_log_group.gallery_thumbnails` | `/aws/lambda/everyday-lilly-vault-prod-gallery-thumbnails` |
+
+The bucket had no notification before deployment. Preserve any later notifications when reconciling this bucket-wide Terraform resource. Review the recovered plan for replacements/deletions; do not apply against empty state.
+
+Verification: all 455 originals retained their keys, sizes and ETags; all 455 expected previews exist (about 14.7 MB). All eight video posters returned signed JPEG responses, and an unsigned preview returned 403. Normal Cognito authentication returned the admin monthly manifest with all original/preview pairs in 2.88 seconds after the capacity change. Both Lambdas are Active; worker log retention is 14 days. Existing-media generation was exercised through controlled invocations; the S3 notification configuration was verified without adding synthetic media to the production album.
+
+## Frontend follow-up — 2026-09-10 (historical)
 
 The owner assigned the reviewed account to `admin`; a read-only AWS check confirmed that membership. The gallery now opens a selected month, offers a staged multi-file upload batch, and no longer requires an initial hero upload. It continues to use the existing manifest and upload-url endpoints and zero-based month keys. Existing hero files remain viewable; no media was moved.
 
-The frontend no longer persists signed manifests. It validates authorization on every page load, reuses the in-memory result for month navigation, refreshes the session before API calls, and clears legacy caches on auth changes. Refresh/upload completion refetches metadata without a `refresh` cache-busting parameter, retaining stable photo URLs. Images are lazy-loaded. Video previews decode a still near the viewport, release their video source, and reuse a bounded in-memory frame cache for month revisits. No autoplay, new AWS service, or stored thumbnail objects are involved; preview transfer sizes depend on the browser and original container. This fixes the frontend cache/account and expired-startup-token findings described in the historical review below. The Lambda's one-year signing-window minimum and browser immutable media caching remain unchanged.
+The frontend no longer persists signed manifests. It validates authorization on every page load, reuses the in-memory result for month navigation, refreshes the session before API calls, and clears legacy caches on auth changes. Refresh/upload completion refetches metadata without a `refresh` cache-busting parameter, retaining stable photo URLs. Images are lazy-loaded. The browser-decoded video preview approach was subsequently replaced by stored JPEG previews, as documented above. This fixes the frontend cache/account and expired-startup-token findings described in the historical review below. The Lambda's one-year signing-window minimum and browser immutable media caching remain unchanged.
 
 These are static-site changes, not a backend deployment. No Terraform apply or new AWS service is needed. Eight dependency-free regression tests and loopback browser fixture checks passed; the owner authorized publishing this release through GitHub Pages from main. Production upload writes were not exercised during this update.
 
@@ -40,7 +74,7 @@ live/prod/
 └── terraform.tfvars.example    Example only; not production configuration
 ```
 
-Terraform requires version >= 1.9.0 and the AWS (~> 6.0), archive (~> 2.5), and random (~> 3.6) providers. Lambda runs Node.js 22, with 256 MB memory and a 10-second timeout. At review time it was Active, last update Successful, with a last-modified timestamp of 2026-06-16.
+Terraform requires version >= 1.9.0 and the AWS (~> 6.0), archive (~> 2.5), and random (~> 3.6) providers. The API Lambda runs Node.js 22; its current capacity is 1024 MB with a 15-second timeout. At review time it was Active, last update Successful, with a last-modified timestamp of 2026-06-16.
 
 ## Login and authorization
 
@@ -97,11 +131,11 @@ The UI labels those month IDs 1–60, grouped into five years. Flat legacy numer
 
 Admin upload sequence:
 
-1. Open a month; an empty month offers a hero tile, and a populated month offers a photo upload tile.
+1. Open a month and select/drop one or more files into its upload panel; review and confirm the destination. No hero upload is required.
 2. Request an upload URL with month ID, filename, content type, and upload kind.
 3. Lambda checks the admin role, validates the request, and rejects an existing target with 409.
 4. The browser PUTs directly to S3 using a URL valid for at most 900 seconds and the returned signed headers, including `If-None-Match: *`.
-5. Conditional PUT prevents overwrite races. Refresh the manifest to display the new object.
+5. Conditional PUT prevents overwrite races. The batch refreshes the manifest, and an S3 event creates a preview. Bounded follow-up refreshes can pick up the preview; manual refresh remains available.
 
 The current review did not upload or modify production media.
 
@@ -132,7 +166,7 @@ The following are **absent in this checkout**:
 
 `gallery_api.tf` reads the public PEM and packages the Lambda directory; `index.mjs` loads the private PEM at runtime. These files are ignored by Git. A fresh clone therefore does not contain enough material to reproduce the deployed Lambda package.
 
-Before any production change:
+Before a full Terraform plan/apply:
 
 1. Recover the authoritative state and production variables from their controlled storage and verify they describe the existing resources above. Do not assume an empty local state represents the deployed environment.
 2. Restore the existing matching signing key files through the controlled secret-handling process. Never print or commit the private key. Rotation is a separate operational change affecting signed media access.
