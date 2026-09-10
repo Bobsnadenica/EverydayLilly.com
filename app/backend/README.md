@@ -4,6 +4,12 @@ Initial review: **2026-09-10**. Stored-preview deployment and live verification:
 
 The vault is a deployed, Terraform-managed AWS serverless backend in **eu-central-1 (Frankfurt)**. The public site is hosted on GitHub Pages and calls Cognito directly. No Amplify integration is used by this repository.
 
+## Private month dates — 2026-09-11
+
+The monthly manifest now includes `timelineStartDate`, sourced from the Lambda environment variable `GALLERY_TIMELINE_START_DATE`. It is returned only after the existing JWT/role checks; the test collection receives null. The actual value stays out of public HTML, JavaScript, documentation and Git. Terraform exposes the sensitive input `gallery_timeline_start_date`; restore its live value into controlled production variables before any future plan/apply. The default is empty for an unconfigured deployment.
+
+The frontend calculates monthly anniversaries in UTC, clamps short-month boundaries, and displays an inclusive Bulgarian date range in the upload heading. This change was deployed by preserving the existing Lambda package/signing files and other environment variables; no full Terraform apply. Normal authenticated API checks verified the date configuration and retained all original/preview pairs.
+
 ## Stored preview deployment — 2026-09-11
 
 `lambda/gallery_thumbnails/handler.py` runs as `everyday-lilly-vault-prod-gallery-thumbnails` (Python 3.12, x86_64, 1024 MB, 150-second timeout). S3 object-created events under `months/` generate JPEG previews with FFmpeg. Preview keys are `previews/months/<sha256(original-key + newline + unquoted-etag)>.jpg`, outside the event prefix to prevent recursion. Outputs contain no copied metadata, fit within 640 × 640 pixels, and use conditional PUT plus immutable caching. Source objects are only read.

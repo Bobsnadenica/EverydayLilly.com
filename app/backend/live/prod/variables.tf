@@ -94,3 +94,10 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "gallery_timeline_start_date" {
+  description = "Private ISO start date for the monthly album. Set in controlled production variables, never commit the actual date."
+  type        = string
+  sensitive   = true
+  default     = ""
+}

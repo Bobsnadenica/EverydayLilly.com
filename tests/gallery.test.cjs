@@ -14,7 +14,7 @@ function harness({ query = '', saved, response, environment = {} } = {}) {
     fetch: async (url, options) => { requests.push({url, options}); return response; },
     ...environment
   });
-  vm.runInContext(source.replace('  document.addEventListener("DOMContentLoaded"', '  window.testing = { getInitialMonth, getMonthItems, fetchManifest, rememberMonth, buildMediaMarkup, getGrowthPhotos, renderMonthDetail };\n  document.addEventListener("DOMContentLoaded"'), context);
+  vm.runInContext(source.replace('  document.addEventListener("DOMContentLoaded"', '  window.testing = { getInitialMonth, getMonthItems, fetchManifest, rememberMonth, buildMediaMarkup, getGrowthPhotos, renderMonthDetail, getMonthDateRange };\n  document.addEventListener("DOMContentLoaded"'), context);
   return { ...context.window.testing, requests, storage };
 }
 const session = { claims: { iss: 'issuer', sub: 'parent' }, tokens: { id_token: 'test-token' } };
@@ -96,4 +96,23 @@ test('empty month buttons remain selectable with an explicit accessible empty st
   h.renderMonthDetail(content,{manifest,selectedMonth:0,actualCollection:'months',uploadQueue:[],uploading:false});
   assert.match(content.innerHTML,/class="month-tab is-empty" data-month-trigger="1"[^>]*aria-label="Месец 2, няма снимки"/);
   assert.doesNotMatch(content.innerHTML,/data-month-trigger="1"[^>]*disabled/);
+});
+
+test('month date ranges use anniversaries, inclusive end dates and year rollover', () => {
+  const h = harness();
+  const data = {timelineStartDate:'2000-12-09'};
+  const range = h.getMonthDateRange(data, 0);
+  assert.match(range,/9.*декември.*2000.*8.*януари.*2001/);
+  assert.match(h.getMonthDateRange(data, 1),/9.*януари.*8.*февруари.*2001/);
+  assert.equal(h.getMonthDateRange({},0),'');
+  assert.equal(h.getMonthDateRange({timelineStartDate:'2000-02-31'},0),'');
+  assert.match(h.getMonthDateRange({timelineStartDate:'2000-01-31'},1),/29.*февруари.*30.*март/);
+});
+test('upload heading includes dates and the wheel has no playback toggle', () => {
+  const h=harness({environment:{document:{addEventListener(){},getElementById(){return null;}}}});
+  const content={};
+  h.renderMonthDetail(content,{manifest:{...manifest,timelineStartDate:'2000-12-09'},selectedMonth:0,actualCollection:'months',uploadQueue:[],uploading:false});
+  assert.match(content.innerHTML,/upload-month-dates/);
+  assert.match(content.innerHTML,/декември/);
+  assert.doesNotMatch(content.innerHTML,/growth-toggle|data-growth-toggle/);
 });

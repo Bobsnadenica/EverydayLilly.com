@@ -13,7 +13,7 @@ function backend() {
   const requests=[];
   class ListObjectsV2Command {constructor(input){this.input=input;}}
   class S3Client {async send(command){requests.push(command.input);return {Contents:command.input.Prefix==='months/'?[original]:[{Key:`previews/months/${hash}.jpg`,Size:12,ETag:'"thumb"'}]};}}
-  const context=vm.createContext({S3Client,ListObjectsV2Command,HeadObjectCommand:class {},crypto,path,fileURLToPath,fs:{readFileSync:()=>privateKey},process:{env:{GALLERY_BUCKET:'private-test',GALLERY_PUBLIC_BASE_URL:'https://media.example.com',GALLERY_SIGNER_KEY_PAIR_ID:'test-key'}},URL,console,Buffer});
+  const context=vm.createContext({S3Client,ListObjectsV2Command,HeadObjectCommand:class {},crypto,path,fileURLToPath,fs:{readFileSync:()=>privateKey},process:{env:{GALLERY_BUCKET:'private-test',GALLERY_TIMELINE_START_DATE:'2000-12-09',GALLERY_PUBLIC_BASE_URL:'https://media.example.com',GALLERY_SIGNER_KEY_PAIR_ID:'test-key'}},URL,console,Buffer});
   vm.runInContext(source.replace(/^import .*;\n/gm,'').replaceAll('import.meta.url',JSON.stringify('file:///test/index.mjs')).replace(/^export /gm,'')+'\nglobalThis.api={handler,thumbnailKey};',context);
   return {...context.api,requests,hash};
 }
@@ -22,6 +22,7 @@ test('manifest signs a separate preview URL without adding derived images to pho
   const result=await h.handler({requestContext:{http:{method:'GET',path:'/api/gallery/manifest'},authorizer:{jwt:{claims:{token_use:'id','cognito:groups':['admin']}}}}});
   assert.equal(result.statusCode,200);
   const body=JSON.parse(result.body);
+  assert.equal(body.timelineStartDate,'2000-12-09');
   assert.equal(body.photos.length,1);
   assert.equal(body.photos[0].kind,'movie');
   assert.equal(new URL(body.photos[0].thumbnailUrl).pathname,`/previews/months/${h.hash}.jpg`);

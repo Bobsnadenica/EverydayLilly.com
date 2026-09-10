@@ -430,7 +430,6 @@
     if (!photos.length) return "";
     return `<section class="growth-wheel" aria-label="Лили расте — от първата до последната снимка">
       <div class="growth-heading"><div class="growth-intro"><span class="section-kicker">Лили расте <span class="growth-wish" aria-hidden="true">✧</span></span><span class="growth-caption">Малко вълшебство, ден след ден.</span></div><div class="growth-controls">
-        <button type="button" class="growth-toggle" data-growth-toggle aria-label="Пауза на въртележката"><span aria-hidden="true">Ⅱ</span></button>
         <button type="button" data-growth-step="-1" aria-label="По-ранни снимки">←</button>
         <button type="button" data-growth-step="1" aria-label="По-нови снимки">→</button>
       </div></div>
@@ -452,16 +451,14 @@
     if (!wheel) return () => {};
     const track = wheel.querySelector(".growth-track");
     const frames = [...track.querySelectorAll(".growth-frame")];
-    const toggle = wheel.querySelector("[data-growth-toggle]");
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const listeners = new AbortController();
     const listen = (node, name, callback, options = {}) => node.addEventListener(name, callback, { ...options, signal: listeners.signal });
     const step = () => frames.length > 1 ? frames[1].offsetLeft - frames[0].offsetLeft : 92;
-    state.growthPlaying ??= !motion.matches;
     state.growthDirection ??= 1;
     frames.forEach(frame => { frame.tabIndex = -1; });
     let current = -1, animation = 0, resumeTimer = 0, lastTime = 0;
-    let visible = false, hovered = false, pressed = false, disposed = false, restingUntil = 0, manualUntil = 0, driftPosition = 0;
+    let visible = false, pressed = false, disposed = false, restingUntil = 0, manualUntil = 0, driftPosition = 0;
 
     function update() {
       const next = Math.max(0, Math.min(frames.length - 1, Math.round(track.scrollLeft / step())));
@@ -480,12 +477,8 @@
       cancelAnimationFrame(animation);
       animation = 0;
       lastTime = 0;
-      toggle.hidden = motion.matches || frames.length < 2;
-      const focused = wheel.contains(document.activeElement) && document.activeElement !== toggle;
-      const playing = state.growthPlaying && !motion.matches && frames.length > 1 && visible && !document.hidden && !hovered && !pressed && !focused &&
+      const playing = !motion.matches && frames.length > 1 && visible && !document.hidden && !pressed &&
         !state.uploading && !state.uploadQueue.length && !document.querySelector(".viewer:not([hidden])") && performance.now() >= manualUntil;
-      toggle.setAttribute("aria-label", state.growthPlaying ? "Пауза на въртележката" : "Пусни въртележката");
-      toggle.firstElementChild.textContent = state.growthPlaying ? "Ⅱ" : "▷";
       wheel.classList.toggle("is-drifting", Boolean(playing));
       if (playing) { driftPosition = track.scrollLeft; animation = requestAnimationFrame(drift); }
     }
@@ -521,23 +514,11 @@
     wheel.querySelectorAll("[data-growth-step]").forEach(button => {
       listen(button, "click", () => move(Number(button.dataset.growthStep) * 3));
     });
-    listen(toggle, "click", () => {
-      state.growthPlaying = !state.growthPlaying;
-      manualUntil = 0;
-      syncMotion();
-    });
     listen(track, "scroll", update, { passive: true });
-    listen(track, "pointerenter", event => { if (event.pointerType === "mouse") { hovered = true; syncMotion(); } });
-    listen(track, "pointerleave", () => { hovered = false; syncMotion(); });
     listen(track, "pointerdown", () => { pressed = true; pauseForInteraction(); }, { passive: true });
     ["pointerup", "pointercancel"].forEach(name => listen(window, name, () => {
       if (pressed) { pressed = false; pauseForInteraction(); }
     }, { passive: true }));
-    listen(wheel, "focusin", event => {
-      if (event.target !== toggle) state.growthPlaying = false;
-      syncMotion();
-    });
-    listen(wheel, "focusout", () => queueMicrotask(syncMotion));
     listen(track, "keydown", event => {
       if (["Enter", " "].includes(event.key) && event.target === track) { event.preventDefault(); frames[current].click(); return; }
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -555,7 +536,7 @@
     }, { passive: false });
     listen(document, "visibilitychange", syncMotion);
     listen(window, "lilly:viewer-change", syncMotion);
-    listen(motion, "change", () => { if (motion.matches) state.growthPlaying = false; syncMotion(); });
+    listen(motion, "change", syncMotion);
     const observer = new IntersectionObserver(entries => { visible = entries[0].intersectionRatio >= 0.25; syncMotion(); }, { threshold: 0.25 });
     observer.observe(wheel);
     track.scrollLeft = (state.growthIndex || 0) * step();
@@ -570,9 +551,25 @@
     };
   }
 
+  function getMonthDateRange(manifest, month) {
+    const value = manifest?.timelineStartDate || "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isInteger(month) || month < 0 || month >= GALLERY_MONTH_COUNT) return "";
+    const [year, calendarMonth, day] = value.split("-").map(Number);
+    const anchor = new Date(`${value}T00:00:00Z`);
+    if (anchor.getUTCFullYear() !== year || anchor.getUTCMonth() + 1 !== calendarMonth || anchor.getUTCDate() !== day) return "";
+    const anniversary = offset => new Date(Date.UTC(year, calendarMonth - 1 + offset,
+      Math.min(day, new Date(Date.UTC(year, calendarMonth + offset, 0)).getUTCDate())));
+    const start = anniversary(month);
+    const end = anniversary(month + 1);
+    end.setUTCDate(end.getUTCDate() - 1);
+    const format = new Intl.DateTimeFormat("bg-BG", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+    return format.formatRange ? format.formatRange(start, end) : `${format.format(start)} – ${format.format(end)}`;
+  }
+
   function renderMonthDetail(content, state) {
     const month = state.selectedMonth;
     const items = getMonthItems(state, month);
+    const dateRange = getMonthDateRange(state.manifest, month);
     const year = getTimelineYear(month);
     const locked = state.uploading || state.uploadQueue.length > 0;
     const monthsWithPhotos = Array.from({ length: GALLERY_MONTH_COUNT }, (_, i) => getMonthItems(state, i).length).filter(Boolean).length;
@@ -610,7 +607,7 @@
         </div>
         ${canUploadToGallery(state) ? `
           <section class="album-upload" data-upload-drop-zone aria-label="Качване в Месец ${month + 1}">
-            <div class="upload-intro"><span class="upload-symbol" aria-hidden="true">＋</span><div><h3>Добави спомени в Месец ${month + 1}</h3><p>Пусни снимките тук или ги избери от телефона.</p></div></div>
+            <div class="upload-intro"><span class="upload-symbol" aria-hidden="true">＋</span><div><h3>Добави спомени в Месец ${month + 1}${dateRange ? `<span class="upload-month-dates">${escapeHtml(dateRange)}</span>` : ""}</h3><p>Пусни снимките тук или ги избери от телефона.</p></div></div>
             <label class="btn btn-primary choose-files">Избери снимки<input class="upload-file-input" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.avif,.gif,.mp4,.mov,.webm,.m4v" ${state.uploading ? "disabled" : ""}></label>
             <p class="upload-format-hint">JPG, PNG, WebP, AVIF, GIF или видео. За HEIC избери JPG при експортиране.</p>
             <div id="upload-queue" class="upload-queue"></div>

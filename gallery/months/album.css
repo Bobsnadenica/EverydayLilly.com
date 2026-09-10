@@ -163,7 +163,6 @@ html { background: #faf8f3; }
 .growth-controls { display: flex; gap: 4px; }
 .growth-controls button { width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--text); font-size: 19px; cursor: pointer; }
 .growth-controls button:hover { background: #eeeee5; }
-.growth-controls .growth-toggle { background: #eeeee4; color: #60765b; font-size: 16px; }
 .growth-stage { position: relative; isolation: isolate; margin-top: 5px; }
 .growth-stage::before { content: ""; position: absolute; z-index: -1; inset: 5px 8% 12px; border-radius: 50%; background: radial-gradient(ellipse at 38% 50%, #e9cfa958, transparent 65%), radial-gradient(ellipse at 66% 55%, #cdddcf70, transparent 60%); animation: memory-glow 7s ease-in-out infinite alternate; animation-play-state: paused; pointer-events: none; }
 .growth-track { position: relative; display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; padding: 20px calc(50% - 40px) 12px; scrollbar-width: none; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent); }
@@ -209,3 +208,5 @@ html { background: #faf8f3; }
 }
 
 @media (max-width: 360px) { .month-strip { grid-template-columns: repeat(4,minmax(0,1fr)); } }
+
+.upload-month-dates { display: block; margin-top: 5px; color: var(--muted); font-size: 13px; font-weight: 600; line-height: 1.5; }

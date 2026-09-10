@@ -115,15 +115,16 @@ resource "aws_lambda_function" "gallery_manifest" {
 
   environment {
     variables = {
-      GALLERY_BUCKET             = aws_s3_bucket.gallery.bucket
-      GALLERY_DEFAULT_PREFIX     = var.gallery_month_prefix
-      GALLERY_TEST_PREFIX        = var.gallery_test_prefix
-      GALLERY_PUBLIC_BASE_URL    = trimsuffix(var.gallery_public_base_url, "/")
-      GALLERY_CACHE_VERSION      = var.gallery_cache_version
-      GALLERY_SIGNED_URL_TTL     = tostring(var.gallery_signed_url_ttl_seconds)
-      GALLERY_SIGNER_KEY_PAIR_ID = aws_cloudfront_public_key.local_signer.id
-      GALLERY_UPLOAD_PATH        = local.gallery_upload_path
-      GALLERY_UPLOAD_URL_TTL     = "900"
+      GALLERY_BUCKET              = aws_s3_bucket.gallery.bucket
+      GALLERY_DEFAULT_PREFIX      = var.gallery_month_prefix
+      GALLERY_TEST_PREFIX         = var.gallery_test_prefix
+      GALLERY_PUBLIC_BASE_URL     = trimsuffix(var.gallery_public_base_url, "/")
+      GALLERY_TIMELINE_START_DATE = var.gallery_timeline_start_date
+      GALLERY_CACHE_VERSION       = var.gallery_cache_version
+      GALLERY_SIGNED_URL_TTL      = tostring(var.gallery_signed_url_ttl_seconds)
+      GALLERY_SIGNER_KEY_PAIR_ID  = aws_cloudfront_public_key.local_signer.id
+      GALLERY_UPLOAD_PATH         = local.gallery_upload_path
+      GALLERY_UPLOAD_URL_TTL      = "900"
     }
   }
 

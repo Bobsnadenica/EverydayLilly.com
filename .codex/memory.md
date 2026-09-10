@@ -2,6 +2,12 @@
 
 Last updated: 2026-09-11 Europe/Sofia
 
+## Month dates and automatic-only wheel — 2026-09-11
+
+- Upload headings now include the selected month's inclusive date range, calculated from monthly anniversaries in UTC and formatted in Bulgarian. Short months and year rollover are covered by tests. The actual timeline start date is private Lambda configuration, delivered as `timelineStartDate` only by the authorized monthly manifest; never hardcode the actual date into the public repo. Terraform's sensitive `gallery_timeline_start_date` input must be restored alongside other production variables before a future full apply.
+- Removed the wheel's play/stop button and persistent paused state at the owner's request. It resumes automatically after manual interaction; hover/focus no longer leave it stopped. Existing reduced-motion, offscreen/hidden-tab, open-viewer and upload guards remain. This supersedes the playback-control behavior below.
+- Deployed the additive Lambda date configuration and manifest field while preserving the existing signing package and other environment values; no full Terraform apply. Authenticated live checks verified the configured date and all existing original/preview pairs. Twenty-two JS tests pass. Desktop/mobile synthetic QA confirmed month-specific date labels, no playback button, autoplay and no horizontal overflow. Actual date and private files are excluded from Git.
+
 ## Animated growth ribbon — 2026-09-11
 
 - Owner requested a magical, child-friendly wheel that moves by itself. Added slow continuous scrolling (24 CSS pixels/second), a short rest then reversal at either end, lightly tilted framed photos, a warm glow and six tiny CSS stars. No external assets, extra API polling, or duplicated photo elements. Cached thumbnails remain the source.

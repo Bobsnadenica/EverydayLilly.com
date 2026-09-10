@@ -585,6 +585,7 @@ async function handleManifest(event, claims) {
   return json(200, {
     collection: isTest ? "test" : "months",
     prefix,
+    timelineStartDate: isTest ? null : process.env.GALLERY_TIMELINE_START_DATE || null,
     expiresAt: expiresAtEpochSeconds,
     cacheTtlSeconds: signedUrlTtlSeconds,
     cacheVersion,
