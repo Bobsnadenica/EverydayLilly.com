@@ -458,7 +458,7 @@
     state.growthDirection ??= 1;
     frames.forEach(frame => { frame.tabIndex = -1; });
     let current = -1, animation = 0, resumeTimer = 0, lastTime = 0;
-    let visible = false, pressed = false, disposed = false, restingUntil = 0, manualUntil = 0, driftPosition = 0;
+    let visible = false, hovered = false, pressed = false, disposed = false, restingUntil = 0, manualUntil = 0, driftPosition = 0;
 
     function update() {
       const next = Math.max(0, Math.min(frames.length - 1, Math.round(track.scrollLeft / step())));
@@ -477,10 +477,16 @@
       cancelAnimationFrame(animation);
       animation = 0;
       lastTime = 0;
-      const playing = !motion.matches && frames.length > 1 && visible && !document.hidden && !pressed &&
+      // Keep snapping disabled even while hovering, so pausing freezes the exact position.
+      wheel.classList.toggle("has-auto-scroll", !motion.matches && frames.length > 1);
+      const playing = !motion.matches && frames.length > 1 && visible && !document.hidden && !hovered && !pressed &&
         !state.uploading && !state.uploadQueue.length && !document.querySelector(".viewer:not([hidden])") && performance.now() >= manualUntil;
       wheel.classList.toggle("is-drifting", Boolean(playing));
-      if (playing) { driftPosition = track.scrollLeft; animation = requestAnimationFrame(drift); }
+      if (playing) {
+        track.scrollTo({ left: track.scrollLeft, behavior: "instant" });
+        driftPosition = track.scrollLeft;
+        animation = requestAnimationFrame(drift);
+      }
     }
 
     function drift(now) {
@@ -489,12 +495,12 @@
       lastTime = now;
       if (now >= restingUntil) {
         const end = (frames.length - 1) * step();
-        const next = driftPosition + state.growthDirection * delta * 0.024;
+        const next = driftPosition + state.growthDirection * delta * 0.096;
         driftPosition = Math.max(0, Math.min(end, next));
         track.scrollLeft = driftPosition;
         if ((state.growthDirection > 0 && next >= end) || (state.growthDirection < 0 && next <= 0)) {
           state.growthDirection *= -1;
-          restingUntil = now + 1800;
+          restingUntil = now + 600;
         }
         update();
       }
@@ -502,10 +508,10 @@
     }
 
     function pauseForInteraction() {
-      manualUntil = performance.now() + 7000;
+      manualUntil = performance.now() + 900;
       clearTimeout(resumeTimer);
       syncMotion();
-      resumeTimer = setTimeout(syncMotion, 7050);
+      resumeTimer = setTimeout(syncMotion, 950);
     }
     function move(delta) {
       pauseForInteraction();
@@ -515,6 +521,20 @@
       listen(button, "click", () => move(Number(button.dataset.growthStep) * 3));
     });
     listen(track, "scroll", update, { passive: true });
+    // Listen on the whole wheel: crossing between photos or controls is still a hover.
+    listen(wheel, "pointerenter", event => {
+      if (event.pointerType === "touch") return;
+      hovered = true;
+      syncMotion();
+    });
+    listen(wheel, "pointerleave", event => {
+      if (event.pointerType === "touch") return;
+      hovered = false;
+      manualUntil = 0;
+      restingUntil = 0;
+      clearTimeout(resumeTimer);
+      syncMotion();
+    });
     listen(track, "pointerdown", () => { pressed = true; pauseForInteraction(); }, { passive: true });
     ["pointerup", "pointercancel"].forEach(name => listen(window, name, () => {
       if (pressed) { pressed = false; pauseForInteraction(); }

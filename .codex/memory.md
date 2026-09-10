@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-11 Europe/Sofia
 
+## Faster hover-pause carousel — 2026-09-11
+
+- Owner clarified the exact interaction: faster automatic movement, pause on mouse hover, resume immediately on mouse exit, with no play/stop button. Speed is now 96 CSS pixels/second (4× the previous rate), with a 600 ms rest at each end. Pointer enter/leave handlers belong to the entire wheel, so moving between photos and arrows does not accidentally restart motion.
+- Mouse exit clears the interaction cooldown and end rest; retained mouse focus does not block resumption. Touch pointers do not set mouse-hover state. Manual touch/keyboard navigation has a 900 ms cooldown. Reduced-motion, hidden/offscreen, upload and viewer guards remain.
+- CSS scroll snapping stays disabled throughout automatic mode, including a hover pause: toggling it on when paused previously could shift the frozen position. Restart cancels any remaining native smooth scroll before continuing from the same offset. No media or backend changes.
+- Consulted W3C carousel animation guidance and official Embla Auto Scroll documentation (stopOnMouseEnter with stopOnInteraction false). Figma screenshot retrieval hit the Starter tool-call limit; no new Figma output or private media transfer occurred. Added repeat hover/leave, retained-focus, speed and touch-pointer regression coverage. All 23 JS tests pass. Real browser pointer entry held the exact offset unchanged; pointer exit resumed immediately. Arrow hover was also verified to pause.
+
 ## Month dates and automatic-only wheel — 2026-09-11
 
 - Upload headings now include the selected month's inclusive date range, calculated from monthly anniversaries in UTC and formatted in Bulgarian. Short months and year rollover are covered by tests. The actual timeline start date is private Lambda configuration, delivered as `timelineStartDate` only by the authorized monthly manifest; never hardcode the actual date into the public repo. Terraform's sensitive `gallery_timeline_start_date` input must be restored alongside other production variables before a future full apply.

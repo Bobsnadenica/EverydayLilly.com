@@ -13,7 +13,7 @@ function scene({reduced = false, index = 0} = {}) {
     setAttribute(name,value){this[name]=value}
   });
   const frames = Array.from({length:3},(_,i)=>Object.assign(element(),{offsetLeft:i*92}));
-  const track = Object.assign(element(),{position:0,querySelectorAll:()=>frames});
+  const track = Object.assign(element(),{position:0,querySelectorAll:()=>frames,scrollTo({left}){this.scrollLeft=left}});
   // Some browsers round scroll offsets; the animation must retain sub-pixel progress.
   Object.defineProperty(track,'scrollLeft',{get(){return this.position},set(v){this.position=Math.round(v)}});
   const prev = element(), next = element(), wheel = element();
@@ -46,7 +46,7 @@ test('wheel glides despite rounded scroll positions and resumes after manual int
   const paused=s.track.scrollLeft;s.tick(30);
   assert.equal(s.track.scrollLeft,paused);
   assert.equal(s.pending.size,0);
-  s.tick(450);assert.ok(s.track.scrollLeft>paused);
+  s.tick(70);assert.ok(s.track.scrollLeft>paused);
   s.stop();
 });
 test('offscreen/viewer pauses resume safely and disposed wheels cannot restart',async()=>{
@@ -63,12 +63,30 @@ test('reduced-motion preference prevents autoplay and stops an already running w
   assert.equal(s.pending.size,0);s.stop();
 });
 test('last photo rests then reverses without jumping to the beginning',()=>{
-  const s=scene({index:2});s.tick(100);assert.equal(s.track.scrollLeft,184);
-  s.tick(40);assert.ok(s.track.scrollLeft<184 && s.track.scrollLeft>160);
+  const s=scene({index:2});s.tick(30);assert.equal(s.track.scrollLeft,184);
+  s.tick(20);assert.ok(s.track.scrollLeft<184 && s.track.scrollLeft>160);
   assert.equal(s.state.growthDirection,-1);s.stop();
 });
-test('focus and hover cannot leave the automatic wheel stopped',()=>{
-  const s=scene();s.document.activeElement=s.track;s.wheel.dispatchEvent(new Event('focusin'));
-  s.track.dispatchEvent(new Event('pointerenter'));s.tick(30);
-  assert.ok(s.track.scrollLeft>8);assert.equal(s.pending.size,1);s.stop();
+test('hover freezes the exact position and mouse leave resumes immediately despite retained focus',()=>{
+  const s=scene();s.tick(30);
+  assert.ok(s.track.scrollLeft>=43 && s.track.scrollLeft<=46, '96px/second across rounded browser offsets');
+  for(let cycle=0;cycle<3;cycle++){
+    s.wheel.dispatchEvent(new Event('pointerenter'));
+    const paused=s.track.scrollLeft;s.tick(90);
+    assert.equal(s.track.scrollLeft,paused);
+    assert.equal(s.pending.size,0);
+    assert.ok(s.wheel.classList.contains('has-auto-scroll'), 'hover must not re-enable CSS snapping');
+    s.document.activeElement=s.track;
+    s.track.dispatchEvent(new Event('pointerdown'));
+    s.window.dispatchEvent(new Event('pointerup'));
+    s.wheel.dispatchEvent(new Event('pointerleave'));
+    s.tick(3);
+    assert.ok(s.track.scrollLeft>paused,'leave bypasses the interaction cooldown');
+  }
+  s.stop();
+});
+test('touch pointers do not latch the mouse hover state',()=>{
+  const s=scene();const touch=new Event('pointerenter');Object.defineProperty(touch,'pointerType',{value:'touch'});
+  s.wheel.dispatchEvent(touch);s.tick(30);
+  assert.ok(s.track.scrollLeft>40);s.stop();
 });

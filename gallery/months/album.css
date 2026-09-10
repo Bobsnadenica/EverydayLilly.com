@@ -166,7 +166,7 @@ html { background: #faf8f3; }
 .growth-stage { position: relative; isolation: isolate; margin-top: 5px; }
 .growth-stage::before { content: ""; position: absolute; z-index: -1; inset: 5px 8% 12px; border-radius: 50%; background: radial-gradient(ellipse at 38% 50%, #e9cfa958, transparent 65%), radial-gradient(ellipse at 66% 55%, #cdddcf70, transparent 60%); animation: memory-glow 7s ease-in-out infinite alternate; animation-play-state: paused; pointer-events: none; }
 .growth-track { position: relative; display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; padding: 20px calc(50% - 40px) 12px; scrollbar-width: none; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent); }
-.is-drifting .growth-track { scroll-snap-type: none; }
+.has-auto-scroll .growth-track { scroll-snap-type: none; }
 .growth-track::-webkit-scrollbar { display: none; }
 .growth-frame { --memory-tilt: -2deg; border: 0; background: none; padding: 0; flex: 0 0 80px; width: 80px; cursor: pointer; color: var(--muted); font: 700 10px Nunito, sans-serif; scroll-snap-align: center; opacity: .67; transform: scale(.91) rotate(var(--memory-tilt)); transition: transform 650ms ease, opacity 650ms ease; }
 .growth-frame:nth-child(even) { --memory-tilt: 2deg; }
