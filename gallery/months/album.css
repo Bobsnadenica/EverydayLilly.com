@@ -85,9 +85,7 @@ html { background: #faf8f3; }
 .family-album .month-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; margin-top: 26px; }
 .family-album .photo-card { aspect-ratio: 4/5; border: 0; border-radius: 12px; box-shadow: none; background: #eaece2; transition: opacity 150ms; }
 .family-album .photo-card:hover { transform: none; box-shadow: none; opacity: .94; }
-.family-album .media-shell-video { display: grid; place-items: center; background: #dfe5d5; }
-.family-album .media-shell-video video { display: none; }
-.photo-play { font-size: 28px; color: #365d4d; }
+.family-album .media-shell-video { background: linear-gradient(145deg, #dfe5d5, #a9bba2); }
 .album-empty { text-align: center; padding: 48px 24px; border: 1px solid #e9e7de; border-radius: 16px; margin-top: 24px; background: #fdfcf8; }
 .empty-flower { display: block; font: 50px/1.1 Georgia,serif; color: #b8ab8f; margin-bottom: 18px; }
 .album-empty h3 { font: 400 27px "Playfair Display",Georgia,serif; margin: 0 0 12px; }

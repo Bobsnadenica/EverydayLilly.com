@@ -556,12 +556,18 @@ body.has-vault-background::after {
 }
 
 .media-shell img,
+.media-shell canvas,
 .media-shell video {
     width: 100%;
     height: 100%;
     display: block;
     object-fit: cover;
 }
+
+.media-shell-video { position: relative; overflow: hidden; background: linear-gradient(145deg, #dfe5d5, #a9bba2); }
+.media-shell-video canvas { position: absolute; inset: 0; }
+.media-shell-video .photo-play { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: #18382dcc; border: 1px solid #ffffff88; color: #fff; font-size: 23px; padding-left: 3px; box-shadow: 0 3px 18px #0002; }
+.video-preview-label { position: absolute; bottom: 15px; left: 15px; z-index: 1; border-radius: 6px; padding: 4px 9px; background: #18382dcc; color: #fff; font: 700 12px Nunito, sans-serif; }
 
 .photo-card img,
 .photo-card video {

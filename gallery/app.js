@@ -352,13 +352,8 @@
 
     if (kind === "movie") {
       return `
-        <div class="media-shell media-shell-video">
-          <video
-            muted
-            playsinline
-            preload="none"
-            aria-label="${escapeHtml(title)}"
-          ></video>
+        <div class="media-shell media-shell-video" data-video-preview="${escapeHtml(photo.url)}">
+          <span class="video-preview-label">Видео</span>
           <span class="photo-play" aria-hidden="true">&#9654;</span>
         </div>
       `;
@@ -403,6 +398,111 @@
         ` : ""}
       </article>
     `;
+  }
+
+  function createVideoPreviews() {
+    // Canvases stay inside this authenticated page. No private frames or signed
+    // URLs are persisted. Drawing cross-origin media needs no pixel readback.
+    const frames = new Map();
+    const active = new Set();
+    let observer;
+    let queue = [];
+
+    function show(shell, frame) {
+      const canvas = document.createElement("canvas");
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      canvas.setAttribute("aria-hidden", "true");
+      canvas.getContext("2d").drawImage(frame, 0, 0);
+      shell.prepend(canvas);
+      shell.classList.add("has-video-preview");
+    }
+
+    function pump() {
+      while (active.size < 2 && queue.length) {
+        const shell = queue.shift();
+        if (!shell.isConnected) continue;
+        const url = shell.dataset.videoPreview;
+        if (frames.has(url)) { show(shell, frames.get(url)); continue; }
+        const video = document.createElement("video");
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = "metadata";
+        let done = false;
+        let target = 0;
+        const timer = setTimeout(() => finish(), 15000);
+        function finish(frame) {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          video.onloadedmetadata = video.onloadeddata = video.onseeked = video.onerror = null;
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+          active.delete(cancel);
+          if (frame && shell.isConnected) {
+            frames.set(url, frame);
+            if (frames.size > 40) frames.delete(frames.keys().next().value);
+            show(shell, frame);
+          } else if (shell.isConnected) {
+            shell.querySelector(".video-preview-label").textContent = "Отвори видеото";
+          }
+          pump();
+        }
+        function cancel() { finish(); }
+        function capture() {
+          if (done || video.readyState < 2 || video.seeking || !video.videoWidth) return;
+          try {
+            const frame = document.createElement("canvas");
+            const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+            frame.width = Math.max(1, Math.round(video.videoWidth * scale));
+            frame.height = Math.max(1, Math.round(video.videoHeight * scale));
+            frame.getContext("2d").drawImage(video, 0, 0, frame.width, frame.height);
+            finish(frame);
+          } catch (error) { finish(); }
+        }
+        active.add(cancel);
+        video.onloadedmetadata = () => {
+          target = Number.isFinite(video.duration) ? Math.min(0.1, video.duration / 2) : 0;
+          if (target > 0) video.currentTime = target;
+          else capture();
+        };
+        video.onloadeddata = () => { if (video.currentTime >= target) capture(); };
+        video.onseeked = capture;
+        video.onerror = () => finish();
+        // Never play: fetch just enough to decode a still, then release the source.
+        // Actual transfer size depends on the video's container and browser.
+        video.src = url;
+        video.load();
+      }
+    }
+
+    function reset(clearCache = false) {
+      observer?.disconnect();
+      queue = [];
+      for (const cancel of [...active]) cancel();
+      if (clearCache) frames.clear();
+    }
+
+    function mount(content) {
+      const shells = content.querySelectorAll("[data-video-preview]");
+      observer = typeof IntersectionObserver === "function" ? new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          observer.unobserve(entry.target);
+          queue.push(entry.target);
+        }
+        pump();
+      }, { rootMargin: "200px" }) : null;
+      for (const shell of shells) {
+        const frame = frames.get(shell.dataset.videoPreview);
+        if (frame) show(shell, frame);
+        else if (observer) observer.observe(shell);
+        else queue.push(shell);
+      }
+      pump();
+    }
+    return { mount, reset };
   }
 
   function getMonthItems(state, month) {
@@ -904,6 +1004,7 @@
     let session = await auth.getSession();
     if (!session) { window.location.replace("/"); return; }
     const account = getAccountKey(session);
+    const videoPreviews = createVideoPreviews();
     const state = { requestedCollection, actualCollection: requestedCollection, selectedMonth: null, activeFilter: "all", manifest: null, uploadQueue: [], uploading: false, loading: false, uploadNotice: null };
 
     function clearQueue() {
@@ -914,6 +1015,7 @@
     async function currentSession() {
       const next = await auth.getSession();
       if (!next || getAccountKey(next) !== account) {
+        videoPreviews.reset(true);
         clearQueue();
         dismissViewer();
         content.replaceChildren();
@@ -925,7 +1027,9 @@
     }
 
     function render() {
+      videoPreviews.reset();
       renderGalleryState(content, status, state);
+      videoPreviews.mount(content);
       if (refreshButton) refreshButton.disabled = state.uploading || state.loading || state.uploadQueue.length > 0;
     }
 
@@ -940,6 +1044,7 @@
 
     document.getElementById("gallery-signout")?.addEventListener("click", () => {
       if (state.uploading) return;
+      videoPreviews.reset(true);
       clearQueue();
       auth.signOut({ logoutUri: `${window.location.origin}/` });
     });
@@ -954,6 +1059,7 @@
           } catch (error) {}
         }
         clearQueue();
+        videoPreviews.reset(true);
         dismissViewer();
         content.replaceChildren();
         window.location.replace("/");
@@ -962,6 +1068,7 @@
     window.addEventListener("beforeunload", event => {
       if (state.uploading || state.uploadQueue.length) { event.preventDefault(); event.returnValue = ""; }
     });
+    window.addEventListener("pagehide", () => videoPreviews.reset(true));
 
     async function loadManifest() {
       if (state.loading) return;
@@ -988,6 +1095,7 @@
         enableViewer(content);
       } catch (error) {
         if (error.status === 401 || error.status === 403 || !state.manifest) {
+          videoPreviews.reset(true);
           state.manifest = null;
           clearQueue();
           dismissViewer();
