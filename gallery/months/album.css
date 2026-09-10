@@ -7,23 +7,43 @@ html { background: #faf8f3; }
 }
 .family-album *, .family-album *::before, .family-album *::after { box-sizing: border-box; }
 .family-album [hidden] { display: none !important; }
-/* One fixed sky follows the whole album; all decoration stays behind its controls. */
+/* A fixed lily pond stays behind the album; only transforms and opacity animate. */
 .album-atmosphere { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; user-select: none; }
 .album-atmosphere::before {
   content: ""; position: absolute; inset: -6%;
-  background: radial-gradient(ellipse at 8% 22%, #e9c99250, transparent 48%), radial-gradient(ellipse at 88% 55%, #d7e4cf66, transparent 46%), radial-gradient(ellipse at 40% 95%, #edd4cd50, transparent 45%);
-  animation: album-sky-drift 32s ease-in-out infinite alternate;
+  background: radial-gradient(ellipse at 5% 30%, #a8d3c477, transparent 55%), radial-gradient(ellipse at 95% 65%, #b4dcd688, transparent 55%), radial-gradient(ellipse at 50% 100%, #c9ddae55, transparent 50%);
+  animation: pond-water 24s ease-in-out infinite alternate;
 }
-.album-atmosphere i { position: absolute; color: #b39563; font: normal 13px Georgia, serif; opacity: .2; animation: album-star-drift 18s ease-in-out infinite alternate; }
-.album-atmosphere i:nth-child(1) { left: 3%; top: 20%; }
-.album-atmosphere i:nth-child(2) { left: 94%; top: 12%; font-size: 9px; animation-delay: -9s; }
-.album-atmosphere i:nth-child(3) { left: 16%; top: 62%; font-size: 10px; animation-delay: -5s; }
-.album-atmosphere i:nth-child(4) { left: 87%; top: 72%; animation-delay: -13s; }
-.album-atmosphere i:nth-child(5) { left: 42%; top: 91%; animation-delay: -3s; }
-.album-atmosphere i:nth-child(6) { left: 72%; top: 39%; font-size: 8px; animation-delay: -11s; }
-.album-atmosphere.is-sleeping::before, .album-atmosphere.is-sleeping i { animation-play-state: paused; }
-@keyframes album-sky-drift { from { transform: translate3d(-2%, -1%, 0); opacity: .55; } to { transform: translate3d(2%, 2%, 0); opacity: 1; } }
-@keyframes album-star-drift { from { transform: translate3d(0, 9px, 0) rotate(-8deg); opacity: .1; } to { transform: translate3d(5px, -9px, 0) rotate(8deg); opacity: .32; } }
+.album-atmosphere::after {
+  content: ""; position: absolute; inset: -8%;
+  background: radial-gradient(ellipse at 15% 45%, transparent 28%, #ffffff65 28.3%, transparent 28.8%), radial-gradient(ellipse at 85% 75%, transparent 35%, #ffffff75 35.3%, transparent 35.8%);
+  animation: pond-water 16s ease-in-out -8s infinite alternate-reverse;
+}
+.pond-lily { position: absolute; width: clamp(150px, 19vw, 260px); opacity: .6; animation: pond-float 11s ease-in-out infinite alternate; }
+.pond-lily img { position: relative; display: block; width: 100%; height: auto; }
+.pond-lily-one { left: 58%; top: 12%; }
+.pond-lily-two { right: -55px; top: 62%; width: clamp(170px, 22vw, 290px); animation-delay: -7s; }
+.pond-lily-three { left: 22%; bottom: -52px; width: 190px; animation-delay: -4s; opacity: .45; }
+.pond-ripple { position: absolute; inset: 28% -18% 9%; }
+.pond-ripple::before, .pond-ripple::after { content: ""; position: absolute; inset: 0; border: 1px solid #78ad9b; border-radius: 50%; animation: pond-ripple 9s ease-out infinite; opacity: 0; }
+.pond-ripple::after { animation-delay: -4.5s; }
+.pond-lily-two .pond-ripple::before { animation-delay: -2s; }
+.pond-lily-two .pond-ripple::after { animation-delay: -6.5s; }
+.pond-light { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #d1b164; box-shadow: 0 0 9px 3px #e6cd9555; animation: pond-firefly 7s ease-in-out infinite alternate; }
+.pond-light-one { left: 7%; top: 25%; }
+.pond-light-two { right: 8%; top: 59%; animation-delay: -4s; }
+.pond-light-three { left: 30%; bottom: 12%; animation-delay: -2s; }
+.album-atmosphere.is-sleeping::before, .album-atmosphere.is-sleeping::after,
+.album-atmosphere.is-sleeping *, .album-atmosphere.is-sleeping *::before, .album-atmosphere.is-sleeping *::after { animation-play-state: paused; }
+@keyframes pond-water { from { transform: translate3d(-2%, -1%, 0) scale(1); opacity: .65; } to { transform: translate3d(2%, 2%, 0) scale(1.04); opacity: 1; } }
+@keyframes pond-float { from { transform: translate3d(-6px, 7px, 0) rotate(-3deg); } to { transform: translate3d(8px, -7px, 0) rotate(3deg); } }
+@keyframes pond-ripple { 0% { transform: scale(.75); opacity: 0; } 20% { opacity: .45; } 100% { transform: scale(1.65); opacity: 0; } }
+@keyframes pond-firefly { from { transform: translate3d(0, 5px, 0); opacity: .08; } to { transform: translate3d(8px, -9px, 0); opacity: .6; } }
+@media (max-width: 540px) {
+  .pond-lily-one { left: -70px; top: 34%; width: 155px; opacity: .45; }
+  .pond-lily-two { right: -66px; top: 77%; width: 170px; opacity: .5; }
+  .pond-lily-three { display: none; }
+}
 .family-album .shell { width: min(1216px, calc(100% - 80px)); padding: 0 0 24px; }
 .family-album .topbar { position: static; margin: 0; padding: 18px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none; background: none; backdrop-filter: none; }
 .family-album .brand { display: inline-flex; align-items: center; gap: 13px; font: 600 27px "Playfair Display", Georgia, serif; }
@@ -46,7 +66,7 @@ html { background: #faf8f3; }
 .album-intro h1 em::after { content: ""; position: absolute; z-index: -1; left: -4%; right: -3%; bottom: 0; height: .2em; border-radius: 50%; background: #e9ce986b; transform: rotate(-4deg); }
 .album-intro p { color: var(--muted); font-size: 15px; margin: 16px 0 0; }
 .album-seal { flex-shrink: 0; display: grid; gap: 5px; text-align: center; color: var(--muted); font-size: 11px; padding: 8px 24px; border-left: 1px solid var(--border); }
-.album-moon { display: block; width: 96px; height: 65px; margin: -10px auto 0; }
+.album-lily { display: block; width: 96px; height: 65px; margin: -10px auto 0; }
 .album-seal strong { font-size: 14px; color: var(--text); }
 .family-album .gallery-card { background: none; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none; padding: 0; }
 .family-album .gallery-toolbar { align-items: center; margin: 0 0 18px; padding: 0; border: 0; }
@@ -141,7 +161,7 @@ html { background: #faf8f3; }
   .album-intro .eyebrow { font-size: 8px; }
   .album-seal { display: block; position: absolute; top: 108px; right: 8px; border: 0; padding: 0; pointer-events: none; }
   .album-seal > span, .album-seal strong { display: none; }
-  .album-moon { width: 68px; height: 46px; margin: 0; }
+  .album-lily { width: 68px; height: 46px; margin: 0; }
   .family-album .gallery-toolbar { flex-direction: row; gap: 8px; }
   .family-album .gallery-status { font-size: 11px; }
   .family-album #gallery-refresh { flex-shrink: 0; font-size: 11px; padding: 8px; }
