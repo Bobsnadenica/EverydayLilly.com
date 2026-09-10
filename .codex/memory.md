@@ -118,3 +118,5 @@ This section supersedes older backend deployment, WAF, and validation assumption
 - Do not commit Terraform state, local `terraform.tfvars`, or secrets.
 - Pre-existing dirty files observed on 2026-06-15: `.DS_Store`, `everyday_stuff/.DS_Store`, and `images/.DS_Store`.
 - Skill validation note: the official `quick_validate.py` failed on 2026-06-15 because both available Python runtimes lacked `PyYAML`; equivalent Ruby YAML/frontmatter checks passed.
+
+- 2026-09-11 moonlight visual polish: added an original inline crescent/cloud illustration on desktop and mobile, gold title underline, warm paper washes, selected-month gold border, curved ribbon trail and current-frame glow. Desktop photo previews gently zoom on hover. CSS-only details add no image requests or dependencies; autoplay/hover logic is unchanged. All 23 JS tests and diff checks passed; local synthetic-gallery QA at 1280px and 390px showed no horizontal overflow or console errors, with hover pause and immediate resume confirmed.
