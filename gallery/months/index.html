@@ -3,18 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Хрониката на Лили</title>
+    <title>Лили · Семейният ни албум</title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
     <link rel="icon" type="image/png" href="/images/icons/everyday_lilly.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@400;600;700;800&display=swap">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@400;600;700;800&display=swap" media="print" onload="this.media='all'">
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Nunito:wght@400;600;700;800&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Nunito:wght@400;600;700;800&display=swap" media="print" onload="this.media='all'">
     <noscript>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@400;600;700;800&display=swap">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Nunito:wght@400;600;700;800&display=swap">
     </noscript>
     <link rel="stylesheet" href="/gallery/styles.css">
+    <link rel="stylesheet" href="/gallery/months/album.css">
 </head>
-<body
+<body class="family-album"
     data-gallery-mode="months"
     data-auth-base-url="https://everyday-lilly-vault-prod-1234.auth.eu-central-1.amazoncognito.com"
     data-auth-client-id="680v9kq2oue5323c6r63egrltg"
@@ -23,36 +26,36 @@
 >
     <div class="shell">
         <header class="topbar">
-            <a class="brand" href="/">Хрониката на Лили</a>
+            <a class="brand" href="/"><span class="brand-flower" aria-hidden="true">✿</span><span>Лили<small>СЕМЕЙНИЯТ НИ АЛБУМ</small></span></a>
             <div class="top-actions">
-                <a class="btn btn-secondary" href="/">Обратно</a>
-                <button id="gallery-signout" class="btn btn-primary" type="button">Изход</button>
+                <a class="home-link" href="/">Начало</a>
+                <button id="gallery-signout" class="btn btn-secondary" type="button">Изход</button>
             </div>
         </header>
 
-        <section class="hero">
-            <div class="eyebrow" id="gallery-eyebrow">Частен архив</div>
-            <h1 id="gallery-title">Хрониката на Лили</h1>
-            <p id="gallery-copy">Спомените са подредени по месеци, със защитени CloudFront снимки и бързо качване за администратори.</p>
-            <div class="meta">
-                <span class="meta-pill" id="gallery-user">Сигурна сесия</span>
-                <span class="meta-pill" id="gallery-total">Зареждаме архива</span>
-                <span class="meta-pill" id="gallery-cache">Случаен фон от галерията</span>
+        <main>
+        <section class="album-intro" aria-labelledby="gallery-title">
+            <div>
+                <div class="eyebrow">Малките мигове, които остават</div>
+                <h1 id="gallery-title">Виж как расте <em>Лили.</em></h1>
+                <p>Един месец. Толкова много за запомняне.</p>
             </div>
+            <div class="album-seal"><span aria-hidden="true">♡</span><span id="gallery-user">Само за семейството</span><strong id="gallery-total">Нашите спомени</strong></div>
         </section>
 
         <section class="gallery-card">
             <div class="gallery-toolbar">
                 <div>
-                    <p id="gallery-status" class="gallery-status">Зареждаме вашите спомени...</p>
-                    <p class="toolbar-copy">Изберете месец, за да разгледате снимките или да качите нови спомени.</p>
+                    <p id="gallery-status" class="gallery-status" role="status">Отваряме семейния албум…</p>
                 </div>
-                <button id="gallery-refresh" class="btn btn-secondary" type="button">Ръчно опресняване</button>
+                <button id="gallery-refresh" class="btn btn-secondary" type="button">Обнови албума</button>
             </div>
             <div id="gallery-content" class="loading-state">Моля, изчакайте...</div>
         </section>
         
         <div id="gallery-media-filters" style="display: none;"></div>
+        </main>
+        <footer class="album-footer">С обич, за всички нейни утре. <span aria-hidden="true">✿</span></footer>
     </div>
 
     <script src="/auth/auth.js" defer></script>

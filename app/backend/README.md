@@ -1,287 +1,166 @@
-# Backend Infrastructure
+# Everyday Lilly vault backend
 
-Terraform lives here for the private photo backend that sits behind the Everyday Lilly website and app.
+Verified against repository source and read-only AWS APIs on **2026-09-10 (Europe/Sofia)**.
 
-## Current Goal
+The vault is a deployed, Terraform-managed AWS serverless backend in **eu-central-1 (Frankfurt)**. The public site is hosted on GitHub Pages and calls Cognito directly. No Amplify integration is used by this repository.
 
-The backend is split into two storage lanes:
+## Frontend follow-up — 2026-09-10
 
-- `archive` storage for the full long-term library.
-  This is for the complete photo collection and is designed to transition objects into S3 Glacier Deep Archive for low-cost, long-term retention.
-- `gallery` storage for a much smaller set of monthly images.
-  This stays in a normal S3 bucket behind CloudFront so the website/app can load selected photos quickly after login.
+The owner assigned the reviewed account to `admin`; a read-only AWS check confirmed that membership. The gallery now opens a selected month, offers a staged multi-file upload batch, and no longer requires an initial hero upload. It continues to use the existing manifest and upload-url endpoints and zero-based month keys. Existing hero files remain viewable; no media was moved.
 
-The root website now has a real Cognito-backed sign-in flow.
-This backend stack now owns the secure gallery access path:
+The frontend no longer persists signed manifests. It validates authorization on every page load, reuses the in-memory result for month navigation, refreshes the session before API calls, and clears legacy caches on auth changes. Refresh/upload completion refetches metadata without a `refresh` cache-busting parameter, retaining stable photo URLs. Images are lazy-loaded; videos download only when opened. This fixes the frontend cache/account and expired-startup-token findings described in the historical review below. The Lambda's one-year signing-window minimum and browser immutable media caching remain unchanged.
 
-- Amazon Cognito user pool for authentication
-- private gallery bucket
-- CloudFront distribution in front of the gallery bucket
-- JWT-protected gallery manifest API
-- CloudFront signed URLs minted on demand with a stable cache version plus optional manual refresh busting
-- AWS WAF on the Cognito user pool for quiet login abuse protection
+These are static-site changes, not a backend deployment. No Terraform apply or new AWS service is needed. Eight dependency-free regression tests and loopback browser fixture checks passed; the owner authorized publishing this release through GitHub Pages from main. Production upload writes were not exercised during this update.
 
-## Folder Layout
+## Source and live resources
 
-```text
-app/backend/
-├── README.md
-└── live/
-    └── prod/
-        ├── gallery_api.tf
-        ├── lambda/
-        │   └── gallery_manifest/
-        │       └── index.mjs
-        ├── locals.tf
-        ├── main.tf
-        ├── outputs.tf
-        ├── providers.tf
-        ├── terraform.tfvars.example
-        ├── variables.tf
-        └── versions.tf
-```
+| Service | Role | Verified resource |
+| --- | --- | --- |
+| Cognito | Invite-only user authentication | User pool `eu-central-1_vaA1ovTyr` |
+| Cognito app client | Browser OAuth/PKCE, no client secret in Terraform | `680v9kq2oue5323c6r63egrltg` |
+| API Gateway | HTTP API with JWT authorizer | `ebz7pirts5` |
+| Lambda | Manifest and upload URL handlers | `everyday-lilly-vault-prod-gallery-manifest` |
+| CloudFront | API routing and signed media delivery | `d1fxhro74spn7q.cloudfront.net`, distribution `E1CGP9WRXR343M` |
+| S3 | Private selected gallery media | `everyday-lilly-vault-prod-gallery-rnk3lm46` |
+| S3 | Separate long-term originals archive | `everyday-lilly-vault-prod-archive-rnk3lm46` |
 
-## State Strategy
-
-This repo no longer depends on a Terraform-managed remote state bucket.
-`live/prod/` is set up for local/manual state handling, which matches your current workflow of keeping the state file elsewhere.
-
-If you already created the old `everydaylilly` Terraform state bucket during bootstrap, that bucket is now outside the active repo workflow.
-You can delete it manually later once you have confirmed nothing still points Terraform at that bucket.
-
-Important:
-
-- Do not commit raw `terraform.tfstate` files into Git.
-- Do not store raw Terraform state as a normal GitHub backup.
-  State can contain sensitive and operationally important values.
-- If you want an extra GitHub-side backup, use an encrypted artifact or encrypted export of `terraform state pull`, not a committed plaintext state file.
-- If you keep state outside the repo, make sure it is backed up and access-controlled because it is now your source of truth.
-
-## Suggested Object Layout
-
-### Archive bucket
-
-Recommended structure:
+These are configuration identifiers, not credentials. Never add account passwords, tokens, signed URLs, private object names, or PEM contents to documentation.
 
 ```text
-originals/
-  2024/
-    01/
-      IMG_0001.heic
-      IMG_0002.jpg
+live/prod/
+├── main.tf                     S3, CloudFront, Cognito, gallery groups
+├── gallery_api.tf              API Gateway, JWT authorizer, Lambda, IAM, signing key group
+├── lambda/gallery_manifest/
+│   └── index.mjs               Backend application code
+├── locals.tf
+├── outputs.tf
+├── providers.tf
+├── variables.tf
+├── versions.tf
+└── terraform.tfvars.example    Example only; not production configuration
 ```
 
-This keeps the big library easy to sync and browse later.
-Objects should transition to S3 Deep Archive after 7 days.
+Terraform requires version >= 1.9.0 and the AWS (~> 6.0), archive (~> 2.5), and random (~> 3.6) providers. Lambda runs Node.js 22, with 256 MB memory and a 10-second timeout. At review time it was Active, last update Successful, with a last-modified timestamp of 2026-06-16.
 
-### Gallery bucket
+## Login and authorization
 
-Recommended structure:
+Hosted UI base: `https://everyday-lilly-vault-prod-1234.auth.eu-central-1.amazoncognito.com`.
+
+Start normal login from the website's Sign In button so `auth/auth.js` creates the matching OAuth state and PKCE verifier. Opening a bare Hosted UI login URL without this pending state is not a complete website login test.
+
+Verified app-client configuration:
+
+- OAuth flow: authorization code.
+- Scopes: `openid`, `email`, `profile`, `aws.cognito.signin.user.admin`.
+- Callbacks: `https://www.everydaylilly.com/auth/callback.html` and `http://localhost:8000/auth/callback.html`.
+- Logout URLs: `https://www.everydaylilly.com/` and `http://localhost:8000/`.
+- Explicit auth flows: refresh token, user auth, password auth, and SRP auth.
+- Username-existence suppression: enabled.
+
+The frontend exchanges the code at Cognito's token endpoint and stores the session in session storage, or local storage for remembered sessions. Its helper supports refresh tokens. Terraform configures 60-minute ID/access tokens and 30-day refresh tokens.
+
+The API accepts a Cognito ID token in `Authorization: Bearer …`. API Gateway verifies the issuer/audience; Lambda checks `token_use == id` and role claims. There is no standalone database for gallery permissions.
+
+| Role/claim | Result |
+| --- | --- |
+| `admin` or `admins` group | Monthly gallery and upload capability |
+| `viewers` or `viewer` group | Monthly gallery, read only |
+| `test` group or supported test claim | Test collection; takes precedence over monthly routing |
+| No permitted role/claim | Manifest returns 403 |
+
+Supported test claims are `custom:tag`, `custom:tags`, `tag`, `tags`, `custom:test`, and `test`. Upload authorization independently requires an admin group. Terraform defines `admin` and `viewers`; the live pool also contains `test`, whose creation is not represented in the current Terraform files.
+
+**2026-09-10 account review:** the owner-supplied account was enabled and confirmed but had no group memberships. The browser showed “This account is not assigned to a gallery role.” An intentionally assigned gallery role and fresh tokens are required; an admin-looking email does not confer access. No memberships were changed during review.
+
+For investigation, use `admin-get-user` with a query limited to Enabled/UserStatus and `admin-list-groups-for-user`. Keep account identifiers and returned attributes out of repository notes. An `invalid_scope` error requires comparing the requested scopes to the live app client; do not blindly apply Terraform as a repair. Scopes matched during this review.
+
+## API and storage flow
+
+CloudFront endpoints:
+
+- `GET https://d1fxhro74spn7q.cloudfront.net/api/gallery/manifest`
+- `POST https://d1fxhro74spn7q.cloudfront.net/api/gallery/upload-url`
+
+CloudFront forwards `/api/*` to `ebz7pirts5.execute-api.eu-central-1.amazonaws.com` with caching disabled. Both routes use JWT authorization. The Lambda lists the authorized S3 prefix with pagination and returns metadata plus signed media URLs. The default CloudFront media behavior requires a trusted key group and reaches S3 through Origin Access Control.
+
+Both archive and gallery buckets have all S3 public-access-block settings enabled. The archive's enabled lifecycle rule transitions eligible objects to `DEEP_ARCHIVE` after seven days; S3 lifecycle size eligibility still applies. Archive objects are not served by the gallery Lambda.
+
+New gallery keys use zero-based month IDs:
 
 ```text
-months/
-  0.jpg
-  1.jpg
-  2.jpg
-  11.jpg
-  59.jpg
-  hero/
-    2/
-      cover.jpg
-    37/
-      cover.jpg
-  2/
-    IMG_1234.jpg
-    birthday.gif
-  37/
-    IMG_9999.jpg
-  ...
+months/<0-59>/<filename>          Normal media
+months/hero/<0-59>/<filename>     Month cover images
+test/<filename>                  Test collection
 ```
 
-Existing flat numeric keys are still supported so the current gallery keeps working.
-New website uploads use `months/<month>/<filename>` where `<month>` is `0` through `59`, giving the gallery five years of monthly slots.
-Hero images uploaded from an empty month use `months/hero/<month>/<filename>`.
-For example:
+The UI labels those month IDs 1–60, grouped into five years. Flat legacy numeric media paths remain supported by the frontend; consult its parser before renaming existing objects. The paths above are examples, not a listing of private files.
 
-- `1.jpg` can be the first picture in the first month
-- `2.jpg` can be the first picture in the second month
-- `11.jpg` belongs to month 11
-- `59.jpg` can be a flat legacy-style object for the final month in the five-year timeline
-- `hero/2/cover.jpg` is the month 2 hero image
-- `2/IMG_1234.jpg` belongs explicitly to month 2
-- `hero/37/cover.jpg` and `37/IMG_9999.jpg` belong to month 37
+Admin upload sequence:
 
-Because uploaded objects are never overwritten, CloudFront can keep immutable media caching enabled safely.
-If an admin tries to upload the same sanitized filename to the same month twice, the upload URL request returns `409`.
+1. Open a month; an empty month offers a hero tile, and a populated month offers a photo upload tile.
+2. Request an upload URL with month ID, filename, content type, and upload kind.
+3. Lambda checks the admin role, validates the request, and rejects an existing target with 409.
+4. The browser PUTs directly to S3 using a URL valid for at most 900 seconds and the returned signed headers, including `If-None-Match: *`.
+5. Conditional PUT prevents overwrite races. Refresh the manifest to display the new object.
 
-## Apply Flow
+The current review did not upload or modify production media.
+
+## Cache and session findings from the initial review
+
+- The browser stores manifests in `localStorage` for one hour under a collection-only key. It can reuse them without an API request, and logout does not clear them. This allows account changes in one browser to reuse a previous account's signed URLs and capability UI. Bind caches to the authenticated user and clear/revalidate them on logout or account changes. Backend upload checks remain in force.
+- The signer clamps its expiry window to **at least 31,536,000 seconds** and rounds expiry to the next boundary. A URL's remaining validity ranges up to that window, rather than always being one full year from issuance. CloudFront/browser media caching is long-lived and immutable. Logout or removing a group does not revoke previously issued URLs or recall downloaded/browser-cached media.
+- `gallery_cache_version` and the UI's refresh parameter change URL/cache versions; they are not access revocation controls. Lowering the Terraform TTL alone does not remove the Lambda's one-year minimum.
+- The gallery captures a session once during startup and reuses that token for later refreshes and uploads. Reacquire a refreshed session for each API action to avoid failures after token expiry.
+
+These describe the pre-update source. At the initial review, deployed auth/gallery scripts matched local files byte for byte; the subsequent frontend fixes above are included in this release. Cross-account cache reproduction, long-running token expiry, and issued-media revocation were not exercised against real accounts/media.
+
+## WAF status
+
+Earlier documentation described CAPTCHA and WAF rate blocking that are not present in the current configuration. Current Terraform has no WAF resources and the live `eu-central-1` regional web ACL listing was empty. Cognito username-existence suppression is enabled; MFA is off and user-pool deletion protection is inactive in the inspected live pool. Do not describe a deployed custom WAF/CAPTCHA layer based on the older notes.
+
+## Production state and deployment prerequisites
+
+There is no remote backend block in the Terraform source. The documented workflow relies on externally retained/local state, but the authoritative production state location was **not established** during this review.
+
+The following are **absent in this checkout**:
+
+- `live/prod/terraform.tfstate`
+- `live/prod/terraform.tfvars`
+- `live/prod/.terraform/`
+- `live/prod/lambda/gallery_manifest/gallery_private_key.pem`
+- `live/prod/lambda/gallery_manifest/gallery_public_key.pem`
+
+`gallery_api.tf` reads the public PEM and packages the Lambda directory; `index.mjs` loads the private PEM at runtime. These files are ignored by Git. A fresh clone therefore does not contain enough material to reproduce the deployed Lambda package.
+
+Before any production change:
+
+1. Recover the authoritative state and production variables from their controlled storage and verify they describe the existing resources above. Do not assume an empty local state represents the deployed environment.
+2. Restore the existing matching signing key files through the controlled secret-handling process. Never print or commit the private key. Rotation is a separate operational change affecting signed media access.
+3. Initialize Terraform against the verified state setup, validate, and review a plan for unexpected replacement or destruction before applying an authorized change. Keep state and plans access-controlled.
+
+Do not copy `terraform.tfvars.example` over recovered production values. Its domain and CloudFront values are placeholders. The public GitHub Pages frontend has a separate publication path; Terraform does not publish those static pages. No repository GitHub Actions deployment workflow was present during review.
+
+Safe source checks from the repository root:
 
 ```bash
-cd app/backend/live/prod
-cp terraform.tfvars.example terraform.tfvars
-terraform init
-terraform apply
+node --check app/backend/live/prod/lambda/gallery_manifest/index.mjs
+terraform fmt -check app/backend/live/prod
+git diff --check
 ```
 
-Important for this stack:
+The JavaScript syntax and Terraform formatting checks passed on 2026-09-10. Full Terraform validation/plan/apply was not performed because the deployment inputs were unavailable. No AWS changes were made.
 
-- set `gallery_public_base_url` in `terraform.tfvars` to the viewer-facing CloudFront base URL for the gallery, for example `https://d1fxhro74spn7q.cloudfront.net`
-- keep `gallery_month_prefix = "months"` and `gallery_test_prefix = "test"` aligned with your upload layout
-- tune the Cognito WAF thresholds only if you have real traffic data, because AWS WAF rate rules are burst protection rather than exact per-attempt counters
+## Live smoke results and limits
 
-If this folder was previously initialized against the old S3 backend, do a one-time reinitialization before the next apply:
+- Unauthenticated manifest GET: 401. Use GET; an unsupported HEAD request returns 404 and does not test this route's authorization.
+- Unsigned CloudFront media request: 403.
+- Direct S3 media request: 403.
+- Signed-out gallery URL: redirects to the public homepage.
+- Browser gallery attempt: role-denied message; reviewed account has no groups.
+- Live Lambda: Active/Successful. API routes: JWT protected. CloudFront distribution: enabled and Deployed.
 
-- use `terraform init -migrate-state` if you want Terraform to pull the existing backend state down into local state
-- use `terraform init -reconfigure` if you already have the local state file you want to use and just want Terraform to stop pointing at the old backend
+Private-media rendering, successful upload, full credential entry, password reset, and viewer/test-account isolation were not verified end to end. Do not treat the review as a complete release certification.
 
-## GitHub Secrets and Variables
+## Destructive teardown
 
-Suggested split:
-
-- GitHub Secrets:
-  - `AWS_ACCESS_KEY_ID`
-  - `AWS_SECRET_ACCESS_KEY`
-- GitHub Variables or environment config:
-  - AWS region
-  - Cognito client id
-  - Cognito hosted UI base URL
-  - CloudFront domain
-  - gallery bucket name
-
-Endpoints are usually better stored as non-secret variables than as secrets unless you have a specific reason to hide them.
-
-## Current Prod Outputs
-
-Current environment values and reference keys:
-
-- archive bucket: `everyday-lilly-vault-prod-archive-rnk3lm46`
-- gallery bucket: `everyday-lilly-vault-prod-gallery-rnk3lm46`
-- CloudFront domain: `d1fxhro74spn7q.cloudfront.net`
-- gallery manifest URL: `https://d1fxhro74spn7q.cloudfront.net/api/gallery/manifest`
-- gallery upload URL: `https://d1fxhro74spn7q.cloudfront.net/api/gallery/upload-url`
-- gallery month prefix: `months`
-- example gallery object key: `months/0.jpg`
-- example same-series gallery object key: `months/11.jpg`
-- example final five-year gallery object key: `months/59.jpg`
-- example explicit-month hero key: `months/hero/2/cover.jpg`
-- example explicit-month upload key: `months/2/IMG_1234.jpg`
-- Cognito user pool id: `eu-central-1_vaA1ovTyr`
-- Cognito app client id: `680v9kq2oue5323c6r63egrltg`
-- Cognito gallery admin group: `admin`
-- Cognito gallery viewer group: `viewers`
-- Cognito hosted UI base URL: `https://everyday-lilly-vault-prod-1234.auth.eu-central-1.amazoncognito.com`
-- Cognito hosted UI login URL:
-  `https://everyday-lilly-vault-prod-1234.auth.eu-central-1.amazoncognito.com/login?client_id=680v9kq2oue5323c6r63egrltg&response_type=code&scope=openid+email+profile+aws.cognito.signin.user.admin&redirect_uri=https%3A%2F%2Fwww.everydaylilly.com%2Fauth%2Fcallback.html`
-
-Suggested GitHub variable set for later frontend/app wiring:
-
-- `AWS_REGION=eu-central-1`
-- `COGNITO_USER_POOL_ID=eu-central-1_vaA1ovTyr`
-- `COGNITO_APP_CLIENT_ID=680v9kq2oue5323c6r63egrltg`
-- `COGNITO_HOSTED_UI_BASE_URL=https://everyday-lilly-vault-prod-1234.auth.eu-central-1.amazoncognito.com`
-- `GALLERY_CLOUDFRONT_DOMAIN=d1fxhro74spn7q.cloudfront.net`
-- `GALLERY_MANIFEST_URL=https://d1fxhro74spn7q.cloudfront.net/api/gallery/manifest`
-- `GALLERY_MONTH_PREFIX=months`
-
-## Current Scope
-
-This stack is now intended to enforce gallery access through the backend.
-The browser gallery should no longer decide which collection is visible, and viewers should no longer load raw CloudFront object URLs directly.
-
-For spam and brute-force protection, the stack now layers three controls:
-
-- `prevent_user_existence_errors = "ENABLED"` on the app client, so login responses do not reveal whether a user exists
-- Cognito's built-in password lockout behavior, which begins exponential lockouts after repeated failed password attempts
-- a regional AWS WAF web ACL attached directly to the Cognito user pool, with hidden CAPTCHA on suspicious login bursts and a stricter temporary block for heavier abuse
-
-Because Cognito managed login keeps password entry on the Cognito domain, AWS WAF is the right place to add a quiet CAPTCHA without advertising it in your own website UI.
-AWS WAF can't inspect usernames or passwords in Cognito requests, so its rules work on request patterns and rate rather than an exact "failed twice" counter.
-
-For the real website login, the safest first implementation is to use Cognito hosted UI rather than handling password challenges entirely inside the current custom modal. Hosted UI already handles flows like:
-
-- temporary-password first login
-- forced password reset
-- forgot password
-- reset confirmation
-
-The current Terraform keeps the password policy intentionally lighter for a family photo vault:
-
-- minimum length `8`
-- lowercase required
-- number required
-- uppercase optional
-- symbols optional
-
-If the site later moves to a fully custom login form, it must explicitly support the Cognito `NEW_PASSWORD_REQUIRED` challenge and the full forgot-password flow.
-Until that is built end to end, the best-practice website behavior is:
-
-- use the modal as a simple entry point
-- send real sign-in, first-login password change, and forgot-password actions to Cognito hosted UI
-- return to your site only after Cognito finishes those flows
-
-The backend gallery routing rules are:
-
-- accounts in the Cognito group `admin` receive the `months/` collection and can upload
-- accounts in the Cognito group `viewers` receive the `months/` collection and cannot upload
-- accounts in the Cognito group `test` receive the `test/` collection
-- accounts with a tag-like claim of `test` also receive the `test/` collection
-  Supported claim keys are `custom:tag`, `custom:tags`, `tag`, `tags`, `custom:test`, and `test`
-- accounts without `admin`, `viewers`, or `test` access are denied by the manifest Lambda
-
-The enforcement model is:
-
-1. the browser signs in with Cognito Hosted UI
-2. the gallery page calls `GET /api/gallery/manifest` through CloudFront with a Cognito ID token
-3. API Gateway validates the JWT
-4. the Lambda manifest function decides the allowed prefix and lists the matching objects
-5. the Lambda uses the local CloudFront private key plus a trusted key group to mint signed URLs inside a stable cache window
-6. CloudFront serves photo objects only when the URL signature is valid
-
-Admin upload flow:
-
-1. the months overview lets admins open empty months
-2. an empty month shows a hero-image upload tile first
-3. a month with a hero or photos shows an `Upload pictures` tile as the last grid card
-4. the browser calls `POST /api/gallery/upload-url` with the selected month (`0` through `59`), filename, and upload kind
-5. the Lambda verifies the user is in the `admin` Cognito group
-6. the Lambda checks whether the target key already exists
-7. if the key is free, the Lambda returns a short-lived S3 PUT URL signed with `If-None-Match: *`
-8. S3 rejects overwrite races, and new immutable object keys appear in the next manifest refresh
-
-The current website routing model is:
-
-- after Cognito login, browser-side claims send likely test accounts to `/gallery/test/` and everyone else to `/gallery/months/`
-- the backend manifest remains authoritative and the frontend corrects the route if someone opens the wrong page manually
-- `months/` is rendered as a month-by-month ordered gallery
-- `test/` is rendered as a collage sorted by object date
-- both gallery routes now support pictures, GIFs, and movies through the same signed manifest feed, with frontend media filters layered on top
-
-The current caching model is:
-
-- CloudFront remains the media delivery layer
-- signed URLs now include a stable cache version so they stay the same across normal page loads
-- CloudFront now keeps gallery media in a long-lived immutable cache profile and the browser gets `Cache-Control: public, max-age=31536000, immutable`
-- the gallery UI includes a manual refresh button that requests a fresh cache-busting version on that device without reopening public access
-- if you want to force every client to switch to a new stable cache version, bump `gallery_cache_version` in Terraform and apply again
-
-## Cleanup Script
-
-From the repo root, you can tear the backend down with:
-
-```bash
-./cleanup.sh
-```
-
-That script:
-
-- runs `terraform destroy` in `app/backend/live/prod`
-- removes local Terraform state files, plans, and the `.terraform/` working directory afterward
-
-Use `./cleanup.sh --yes` to skip the confirmation prompt.
-
-For the managed login website flow, keep the app client aligned with the browser code:
-
-- include the reserved OAuth scope `aws.cognito.signin.user.admin`
-- allow password-oriented app client flows that managed login can use, including `ALLOW_USER_AUTH`, `ALLOW_USER_PASSWORD_AUTH`, and `ALLOW_USER_SRP_AUTH`
-
-If the website callback page shows `invalid_scope`, the frontend has started requesting a scope that the deployed Cognito app client has not been updated to allow yet. Re-run `terraform apply` for `live/prod` so the app client settings in AWS match the website code.
+The root `cleanup.sh` runs `terraform destroy` and then removes local state, plans, and `.terraform/`. Its `--yes` option skips its confirmation and enables Terraform auto-approval. It is a teardown tool, not routine cleanup or auth troubleshooting. Do not run it to recover a missing local state or fix a login failure.

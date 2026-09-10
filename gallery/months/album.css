@@ -1,0 +1,156 @@
+/* A quiet album shell; private media is loaded only in the selected month. */
+html { background: #faf8f3; }
+.family-album {
+  --page-bg: #faf8f3; --text: #294d44; --muted: #68756c; --accent: #365d4d;
+  --accent-strong: #294d44; --border: #e1e5da; --surface: #fffefb;
+  background: var(--page-bg); color: var(--text); font-weight: 400;
+}
+.family-album *, .family-album *::before, .family-album *::after { box-sizing: border-box; }
+.family-album [hidden] { display: none !important; }
+.family-album .shell { width: min(1216px, calc(100% - 80px)); padding: 0 0 24px; }
+.family-album .topbar { position: static; margin: 0; padding: 18px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none; background: none; backdrop-filter: none; }
+.family-album .brand { display: inline-flex; align-items: center; gap: 13px; font: 600 27px "Playfair Display", Georgia, serif; }
+.brand-flower { color: #b17758; font: 40px Georgia, serif; }
+.family-album .brand small { display: block; margin-top: 4px; font: 800 9px "Nunito", sans-serif; letter-spacing: 0.16em; }
+.family-album .top-actions { gap: 24px; }
+.home-link { color: var(--muted); text-decoration: none; font-size: 14px; }
+.family-album .btn { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 800; transition: background 150ms; box-shadow: none; }
+.family-album .btn:hover { transform: none; }
+.family-album .btn-primary { color: #fffefb; background: var(--accent); border-color: var(--accent); }
+.family-album .btn-primary:hover { background: #244436; }
+.family-album .btn-secondary { color: var(--text); border-color: var(--border); background: transparent; }
+.family-album .btn-secondary:hover { background: #eeeee5; }
+.family-album :is(button,select,input,a):focus-visible, .choose-files:focus-within { outline: 3px solid #b17758; outline-offset: 4px; transform: none; }
+.family-album button:disabled, .family-album select:disabled { opacity: .45; cursor: not-allowed; }
+.album-intro { display: flex; justify-content: space-between; align-items: center; gap: 32px; padding: 30px 0 24px; }
+.album-intro .eyebrow { color: #987253; font-size: 10px; letter-spacing: .18em; margin-bottom: 15px; }
+.album-intro h1 { font: 400 clamp(34px,4.5vw,56px)/1.2 "Playfair Display", Georgia, serif; margin: 0; letter-spacing: -.035em; }
+.album-intro h1 em { font-weight: 400; }
+.album-intro p { color: var(--muted); font-size: 15px; margin: 16px 0 0; }
+.album-seal { flex-shrink: 0; display: grid; gap: 5px; text-align: center; color: var(--muted); font-size: 11px; padding: 8px 24px; border-left: 1px solid var(--border); }
+.album-seal > span:first-child { font: 30px Georgia,serif; color: #b17758; }
+.album-seal strong { font-size: 14px; color: var(--text); }
+.family-album .gallery-card { background: none; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none; padding: 0; }
+.family-album .gallery-toolbar { align-items: center; margin: 0 0 18px; padding: 0; border: 0; }
+.family-album .gallery-status { font-size: 12px; font-weight: 700; color: var(--muted); }
+.family-album #gallery-refresh { font-size: 12px; padding: 8px 12px; min-height: 44px; }
+.month-navigation { border: 1px solid var(--border); border-radius: 18px; padding: 18px; background: #fffefb; }
+.timeline-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+.section-kicker { font-size: 10px; font-weight: 800; letter-spacing: .13em; color: #8b735e; text-transform: uppercase; margin: 0 0 8px; }
+.timeline-heading p { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.year-control { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
+.year-control select { font: 700 13px "Nunito",sans-serif; padding: 10px 30px 10px 12px; min-height: 44px; color: var(--text); background: #faf8f3; border: 1px solid var(--border); border-radius: 8px; max-width: 100%; }
+.month-strip { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 8px; }
+.month-tab { min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; min-height: 76px; border: 1px solid transparent; border-radius: 12px; font-family: "Nunito",sans-serif; color: #6f7a6e; background: #f6f6ef; cursor: pointer; }
+.month-tab:hover { border-color: #b0c0ad; }
+.month-tab-label { font-size: 8px; letter-spacing: .1em; font-weight: 800; }
+.month-tab strong { font-size: 24px; line-height: 1; font-weight: 600; }
+.month-dot { width: 5px; height: 5px; background: #d6dccc; border-radius: 50%; }
+.month-dot.has-memories { background: #84975f; }
+.month-tab.is-selected { background: var(--accent); color: #fff; box-shadow: 0 5px 12px #294d4412; }
+.month-tab.is-selected .month-dot { background: #e4d5a9; }
+.month-album { padding-top: 28px; }
+.album-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.album-heading h2 { font: 400 44px/1.12 "Playfair Display",Georgia,serif; margin: 8px 0; letter-spacing: -.025em; }
+.heading-dot { color: #b77b5c; }
+.album-caption { color: var(--muted); font-size: 13px; margin: 9px 0 0; }
+.month-stepper { display: flex; gap: 8px; }
+.family-album .month-stepper .btn { width: 44px; padding: 0; font-size: 22px; }
+.album-upload { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 22px; padding: 22px 24px; background: #f0f2e9; border: 1px dashed #b7c3aa; border-radius: 14px; }
+.album-upload.is-dragover { background: #e0ead6; outline: 3px solid #84975f; }
+.upload-intro { display: flex; align-items: center; gap: 16px; }
+.upload-symbol { flex-shrink: 0; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: #e3e8d7; font-size: 28px; color: #57704e; }
+.upload-intro h3 { font-size: 15px; font-weight: 800; margin: 0 0 5px; }
+.upload-intro p { color: var(--muted); font-size: 12px; margin: 0; }
+.choose-files { position: relative; cursor: pointer; }
+.upload-format-hint { flex-basis: 100%; margin: 0; font-size: 11px; color: #6a7363; }
+.upload-queue { width: 100%; }
+.upload-queue:empty { display: none; }
+.queue-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding-top: 12px; border-top: 1px solid #ccd7c2; font-size: 13px; }
+.queue-heading span { font-size: 12px; color: var(--muted); }
+.queue-list { list-style: none; margin: 15px 0; padding: 0; max-height: 280px; overflow: auto; }
+.queue-item { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; border-bottom: 1px solid #dce2d3; padding: 9px 0; font-size: 12px; }
+.queue-item img, .queue-file-icon { width: 44px; height: 44px; object-fit: cover; border-radius: 7px; background: #e0e6d8; }
+.queue-file-icon { display: grid; place-items: center; font-size: 22px; }
+.queue-filename { overflow-wrap: anywhere; }
+.queue-status { font-size: 11px; color: var(--muted); }
+.queue-item[data-status="failed"] .queue-status { color: #9d3735; }
+.queue-item[data-status="uploaded"] .queue-status { color: #365d4d; }
+.queue-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.upload-queue progress { width: 100%; accent-color: var(--accent); }
+.upload-queue p { font-size: 12px; }
+.upload-notice { font-size: 13px; margin: 18px 0; color: var(--accent); overflow-wrap: anywhere; }
+.upload-notice[data-tone="error"] { color: #963c38; }
+.upload-notice:empty { margin: 0; }
+.family-album .month-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; margin-top: 26px; }
+.family-album .photo-card { aspect-ratio: 4/5; border: 0; border-radius: 12px; box-shadow: none; background: #eaece2; transition: opacity 150ms; }
+.family-album .photo-card:hover { transform: none; box-shadow: none; opacity: .94; }
+.family-album .media-shell-video { display: grid; place-items: center; background: #dfe5d5; }
+.family-album .media-shell-video video { display: none; }
+.photo-play { font-size: 28px; color: #365d4d; }
+.album-empty { text-align: center; padding: 48px 24px; border: 1px solid #e9e7de; border-radius: 16px; margin-top: 24px; background: #fdfcf8; }
+.empty-flower { display: block; font: 50px/1.1 Georgia,serif; color: #b8ab8f; margin-bottom: 18px; }
+.album-empty h3 { font: 400 27px "Playfair Display",Georgia,serif; margin: 0 0 12px; }
+.album-empty p { font-size: 13px; color: var(--muted); line-height: 1.7; margin: 0; }
+.album-footnote { text-align: center; margin: 28px 0 0; font-size: 11px; color: #7c8478; }
+.album-footnote span { margin: 0 10px; }
+.album-footer { display: flex; justify-content: center; align-items: center; gap: 12px; font-size: 11px; color: #8b8e80; padding: 34px 0 10px; }
+.album-footer span { color: #b17758; font-size: 22px; }
+.viewer-note { font-size: 13px; color: var(--muted); }
+.family-album .viewer { padding: 16px; }
+.family-album .viewer-card { max-width: 100%; }
+.family-album .viewer-nav { z-index: 25; }
+.family-album .viewer:focus-visible { outline: none; }
+@media (max-width: 900px) {
+  .family-album .shell { width: calc(100% - 40px); }
+  .month-strip { grid-template-columns: repeat(6,minmax(0,1fr)); }
+  .month-tab { min-height: 78px; gap: 7px; }
+  .family-album .month-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 540px) {
+  .family-album .shell { width: calc(100% - 32px); }
+  .family-album .topbar { padding: 20px 0; }
+  .family-album .brand { font-size: 23px; gap: 8px; }
+  .brand-flower { font-size: 32px; }
+  .family-album .brand small { font-size: 7px; }
+  .family-album .top-actions { gap: 9px; }
+  .home-link { display: none; }
+  .album-intro { padding: 32px 0 24px; }
+  .album-intro h1 { max-width: 290px; font-size: 39px; }
+  .album-intro p { font-size: 13px; line-height: 1.6; }
+  .album-intro .eyebrow { font-size: 8px; }
+  .album-seal { display: none; }
+  .family-album .gallery-toolbar { flex-direction: row; gap: 8px; }
+  .family-album .gallery-status { font-size: 11px; }
+  .family-album #gallery-refresh { flex-shrink: 0; font-size: 11px; padding: 8px; }
+  .month-navigation { padding: 16px 12px; border-radius: 14px; }
+  .timeline-heading { align-items: flex-start; flex-direction: column; gap: 14px; margin-bottom: 16px; }
+  .year-control { width: 100%; justify-content: space-between; }
+  .month-strip { gap: 5px; }
+  .month-tab { min-height: 72px; border-radius: 9px; }
+  .month-tab strong { font-size: 21px; }
+  .month-tab-label { font-size: 7px; }
+  .month-album { padding-top: 28px; }
+  .album-heading h2 { font-size: 36px; }
+  .album-caption { font-size: 12px; }
+  .album-upload { padding: 18px 16px; gap: 14px; }
+  .upload-intro { gap: 12px; }
+  .upload-intro h3 { font-size: 14px; }
+  .upload-intro p { font-size: 12px; line-height: 1.5; }
+  .upload-symbol { width: 36px; height: 36px; }
+  .choose-files { width: 100%; }
+  .queue-item { grid-template-columns: 40px 1fr; gap: 4px 9px; }
+  .queue-item img, .queue-file-icon { grid-row: span 2; }
+  .queue-status { grid-column: 2; }
+  .queue-actions .btn { width: 100%; }
+  .family-album .month-grid { gap: 9px; margin-top: 20px; }
+  .family-album .photo-card { border-radius: 8px; }
+  .album-empty { padding: 36px 16px; }
+  .album-empty h3 { font-size: 23px; }
+  .family-album .viewer-nav { display: flex; top: auto; bottom: 16px; transform: none; width: 44px; height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .family-album *, .family-album *::before, .family-album *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+@media (max-width: 360px) { .month-strip { grid-template-columns: repeat(4,minmax(0,1fr)); } }

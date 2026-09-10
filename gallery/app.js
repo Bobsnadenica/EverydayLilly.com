@@ -22,42 +22,32 @@
   const GALLERY_YEAR_COUNT = 5;
   const GALLERY_MONTH_COUNT = MONTHS_PER_YEAR * GALLERY_YEAR_COUNT;
 
-  const STORAGE_KEYS = {
-    refresh: "everyday-lilly.gallery-refresh.",
-    manifest: "everyday-lilly.gallery-manifest.",
-  };
-
-  function getStorageKey(type, collection) {
-    return `${STORAGE_KEYS[type]}${collection}`;
+  // Keep manifests in this authorized page only. Month changes reuse state.manifest;
+  // every new visit validates access with the backend instead of trusting a disk cache.
+  function getAccountKey(session) {
+    return `${session?.claims?.iss || ""}:${session?.claims?.sub || ""}`;
   }
 
-  function readCachedManifest(collection) {
-    try {
-      const data = localStorage.getItem(getStorageKey("manifest", collection));
-      if (!data) return null;
-      const parsed = JSON.parse(data);
-      // Cache for 1 hour
-      if (Date.now() - parsed.timestamp > 3600000) return null;
-      if (!parsed.manifest?.user || typeof parsed.manifest.user.canUpload !== "boolean") return null;
-      return parsed.manifest;
-    } catch (e) {
-      return null;
+  function getInitialMonth(manifest, session) {
+    const query = new URLSearchParams(window.location.search).get("month");
+    if (/^\d+$/.test(query || "")) {
+      const month = parseGalleryMonth(Number(query) - 1);
+      if (month !== null) return month;
     }
+    try {
+      const saved = parseGalleryMonth(localStorage.getItem(`lilly.album.month.${getAccountKey(session)}`));
+      if (saved !== null) return saved;
+    } catch (error) {}
+    const months = [...(manifest.photos || []).map(getMonthBucket), ...(manifest.heroPhotos || []).map(getHeroMonthBucket)]
+      .filter(month => Number.isInteger(month) && month >= 0 && month < GALLERY_MONTH_COUNT);
+    return months.length ? Math.max(...months) : 0;
   }
 
-  function writeCachedManifest(collection, manifest) {
-    try {
-      localStorage.setItem(getStorageKey("manifest", collection), JSON.stringify({
-        timestamp: Date.now(),
-        manifest
-      }));
-    } catch (e) {}
-  }
-
-  function clearCachedManifest(collection) {
-    try {
-      localStorage.removeItem(getStorageKey("manifest", collection));
-    } catch (e) {}
+  function rememberMonth(month, session) {
+    try { localStorage.setItem(`lilly.album.month.${getAccountKey(session)}`, String(month)); } catch (error) {}
+    const url = new URL(window.location.href);
+    url.searchParams.set("month", String(month + 1));
+    window.history.replaceState(null, "", url);
   }
 
   function normalizeCollection(value) {
@@ -210,34 +200,6 @@
     return comparePhotoNames(left, right);
   }
 
-  function compareMonthsPhotos(left, right) {
-    const leftBucket = getMonthBucket(left);
-    const rightBucket = getMonthBucket(right);
-
-    if (leftBucket !== rightBucket) {
-      return leftBucket - rightBucket;
-    }
-
-    return comparePhotosByDate(left, right);
-  }
-
-  function buildMonthGroups(photos) {
-    const groups = new Map();
-
-    for (let i = 0; i < GALLERY_MONTH_COUNT; i++) {
-      groups.set(i, []);
-    }
-
-    [...photos].sort(compareMonthsPhotos).forEach((photo) => {
-      const bucket = getMonthBucket(photo);
-      if (bucket >= 0 && bucket < GALLERY_MONTH_COUNT) {
-        groups.get(bucket).push(photo);
-      }
-    });
-
-    return [...groups.entries()].map(([month, items]) => ({ month, items }));
-  }
-
   function pickTestCardStyle(index) {
     const palette = [
       { col: 6, row: 2, tilt: -2.5, wash: "rgba(129, 140, 248, 0.2)" },
@@ -337,7 +299,6 @@
 
   function updateGalleryChrome(collection, manifest, session) {
     const isBg = document.documentElement.lang === "bg";
-    const email = session?.claims?.email || "";
     const total = getGalleryTotal(manifest);
     const adminLabel = manifest?.user?.canUpload
       ? (isBg ? "Администратор" : "Admin")
@@ -349,48 +310,15 @@
       ? "Случаен фон от защитената галерия"
       : "Random signed gallery background";
 
-    setText("gallery-user", email ? `${adminLabel} · ${email}` : adminLabel);
+    setText("gallery-user", collection === "months" ? "Само за семейството" : adminLabel);
     setText("gallery-total", totalLabel);
-    setText("gallery-cache", cacheLabel);
+    setText("gallery-cache", collection === "months" ? "Пет години малки чудеса" : cacheLabel);
 
     if (collection === "test") {
       setText("gallery-prefix", "Collection prefix: test/");
     }
   }
 
-
-  function sanitizeRefreshToken(value) {
-    return String(value || "")
-      .trim()
-      .replace(/[^A-Za-z0-9._-]/g, "")
-      .slice(0, 64);
-  }
-
-  function readRefreshToken(collection) {
-    try {
-      return sanitizeRefreshToken(localStorage.getItem(getStorageKey("refresh", collection)));
-    } catch (error) {
-      return "";
-    }
-  }
-
-  function writeRefreshToken(collection, value) {
-    const nextValue = sanitizeRefreshToken(value);
-
-    try {
-      const key = getStorageKey("refresh", collection);
-      if (nextValue) {
-        localStorage.setItem(key, nextValue);
-      } else {
-        localStorage.removeItem(key);
-      }
-    } catch (error) {
-    }
-  }
-
-  function createRefreshToken() {
-    return `manual-${Date.now()}`;
-  }
 
   function buildMediaCounts(photos) {
     return photos.reduce(
@@ -426,12 +354,9 @@
       return `
         <div class="media-shell media-shell-video">
           <video
-            src="${escapeHtml(photo.url)}"
             muted
-            loop
-            autoplay
             playsinline
-            preload="metadata"
+            preload="none"
             aria-label="${escapeHtml(title)}"
           ></video>
           <span class="photo-play" aria-hidden="true">&#9654;</span>
@@ -463,10 +388,10 @@
           data-photo-trigger
           data-photo-kind="${escapeHtml(kind)}"
           data-photo-label="${escapeHtml(title)}"
-          data-photo-key="${escapeHtml(photo.key)}"
+
           data-photo-src="${escapeHtml(photo.url)}"
           data-photo-backdrop="${escapeHtml(kind === "movie" ? "" : photo.url)}"
-          aria-label="${escapeHtml(`Open ${title}`)}"
+          aria-label="${escapeHtml(`Отвори ${title}`)}"
         >
           ${buildMediaMarkup(photo, title, options.priority)}
         </a>
@@ -480,132 +405,74 @@
     `;
   }
 
-  const MONTH_NAMES = Array.from({ length: GALLERY_MONTH_COUNT }, (_, month) => `Месец ${getDisplayMonthNumber(month)}`);
-
-  function renderMonthOverview(content, state) {
-    const allPhotos = state.manifest.photos || [];
-    const adminCanUpload = canUploadToGallery(state);
-
-    content.className = "calendar-stack";
-    content.innerHTML = Array.from({ length: GALLERY_YEAR_COUNT }, (_, yearIndex) => {
-      const yearStart = yearIndex * MONTHS_PER_YEAR;
-      const yearEnd = yearStart + MONTHS_PER_YEAR - 1;
-      const yearStartDisplay = getDisplayMonthNumber(yearStart);
-      const yearEndDisplay = getDisplayMonthNumber(yearEnd);
-      const monthsMarkup = Array.from({ length: MONTHS_PER_YEAR }, (_, monthOffset) => {
-        const month = yearStart + monthOffset;
-        const monthLabel = MONTH_NAMES[month];
-        const timelineLabel = getTimelineLabel(month);
-        const hero = getMonthHero(state, month) || allPhotos.find(p => getMonthBucket(p) === month);
-        const monthPhotos = getMonthPhotos(state, month);
-        const itemCount = monthPhotos.length + (getMonthHero(state, month) ? 1 : 0);
-        const countLabel = itemCount
-          ? `${itemCount} ${itemCount === 1 ? "спомен" : "спомена"}`
-          : (adminCanUpload ? "Готов за първа снимка" : "Очаква снимки");
-
-        const hasPhotos = allPhotos.some(p => getMonthBucket(p) === month);
-        const canOpenMonth = hasPhotos || Boolean(hero) || adminCanUpload;
-
-        return `
-          <div class="calendar-stack-card" 
-               ${canOpenMonth ? `data-month-trigger="${month}"` : ""}
-               style="--idx: ${month}"
-               role="button" 
-               aria-label="${escapeHtml(timelineLabel)}">
-            ${hero ? buildMediaMarkup(hero, monthLabel, month < 2) : `<div class="calendar-card-placeholder"><span>${adminCanUpload ? "Качи корица" : "Няма снимки"}</span></div>`}
-            <span class="calendar-stack-name">${escapeHtml(timelineLabel)}</span>
-            <span class="calendar-stack-count">${escapeHtml(countLabel)}</span>
-            <span class="calendar-stack-label">${getDisplayMonthNumber(month)}</span>
-          </div>
-        `;
-      })
-      .join("");
-
-      return `
-        <section class="calendar-year-section" aria-label="Година ${yearIndex + 1}">
-          <div class="calendar-year-divider">
-            <span>Година ${yearIndex + 1}</span>
-            <strong>Месеци ${yearStartDisplay}-${yearEndDisplay}</strong>
-          </div>
-          ${monthsMarkup}
-        </section>
-      `;
-    }).join("");
-  }
-
-  function buildMonthUploadTileMarkup(month, uploadKind) {
-    const isHero = uploadKind === "hero";
-    const inputId = `month-${month}-${uploadKind}-upload`;
-
-    return `
-      <article class="photo-card month-upload-card${isHero ? " month-upload-card-hero" : ""}" data-upload-drop-zone>
-        <form
-          class="month-upload-form"
-          data-month-upload-form
-          data-upload-kind="${escapeHtml(uploadKind)}"
-          data-upload-month="${month}"
-        >
-          <input
-            class="upload-file-input"
-            id="${escapeHtml(inputId)}"
-            name="files"
-            type="file"
-            ${isHero ? "" : "multiple"}
-            accept="${isHero ? "image/avif,image/gif,image/jpeg,image/png,image/webp" : "image/avif,image/gif,image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,.m4v"}"
-          >
-          <label class="upload-drop-label" for="${escapeHtml(inputId)}">
-            <span class="upload-kicker">Admin</span>
-            <span class="upload-drop-icon" aria-hidden="true">+</span>
-            <span class="upload-drop-title">${isHero ? "Качи hero image" : "Upload pictures"}</span>
-            <span class="upload-drop-copy">${isHero ? "Първо добави корица за този месец." : "Пусни много файлове тук или избери от компютъра."}</span>
-          </label>
-          <p class="upload-message" data-upload-message aria-live="polite"></p>
-        </form>
-      </article>
-    `;
+  function getMonthItems(state, month) {
+    const hero = getMonthHero(state, month);
+    const photos = getMonthPhotos(state, month);
+    return hero ? [hero, ...photos.filter(photo => photo.key !== hero.key)] : photos;
   }
 
   function renderMonthDetail(content, state) {
     const month = state.selectedMonth;
-    const photos = getMonthPhotos(state, month);
-    const hero = getMonthHero(state, month);
-    const adminCanUpload = canUploadToGallery(state);
-    const monthLabel = MONTH_NAMES[month];
-    const timelineLabel = getTimelineLabel(month);
-
-    content.className = "month-detail";
-    const photoCards = photos
-      .map((photo, index) =>
-        buildPhotoCardMarkup(photo, {
-          title: `${monthLabel} · ${getPhotoStem(photo)}`,
-          caption: photo.key,
-          priority: index === 0,
-          showMeta: false
-        })
-      )
-      .join("");
-    const shouldUploadHeroFirst = adminCanUpload && !hero && photos.length === 0;
-    const uploadTile = adminCanUpload
-      ? buildMonthUploadTileMarkup(month, shouldUploadHeroFirst ? "hero" : "photo")
-      : "";
-
+    const items = getMonthItems(state, month);
+    const year = getTimelineYear(month);
+    const locked = state.uploading || state.uploadQueue.length > 0;
+    const monthsWithPhotos = Array.from({ length: GALLERY_MONTH_COUNT }, (_, i) => getMonthItems(state, i).length).filter(Boolean).length;
+    content.className = "month-workspace";
     content.innerHTML = `
-      <div class="detail-header">
-        <button class="btn btn-secondary" id="detail-back">← Назад</button>
-        <div>
-          <p class="detail-kicker">Хрониката на Лили</p>
-          <h2 class="detail-title">${monthLabel}</h2>
-          <p class="detail-subtitle">${timelineLabel} · ${photos.length} ${photos.length === 1 ? "снимка" : "снимки"}${hero ? " · има корица" : ""}</p>
+      <nav class="month-navigation" aria-label="Месеци от живота на Лили">
+        <div class="timeline-heading">
+          <div><span class="section-kicker">НЕЙНАТА ИСТОРИЯ</span><p>${monthsWithPhotos} от 60 месеца със спомени</p></div>
+          <label class="year-control">Година
+            <select id="gallery-year" ${locked ? "disabled" : ""}>
+              ${Array.from({ length: GALLERY_YEAR_COUNT }, (_, i) => `<option value="${i}" ${i + 1 === year ? "selected" : ""}>${i + 1} · Месеци ${i * 12 + 1}–${i * 12 + 12}</option>`).join("")}
+            </select>
+          </label>
         </div>
-      </div>
-      <div class="month-grid">${photoCards}${uploadTile}</div>
-    `;
+        <div class="month-strip">
+          ${Array.from({ length: 12 }, (_, i) => {
+            const m = (year - 1) * 12 + i;
+            const count = getMonthItems(state, m).length;
+            return `<button type="button" class="month-tab${m === month ? " is-selected" : ""}" data-month-trigger="${m}" aria-pressed="${m === month}" aria-label="Месец ${m + 1}, ${count} ${count === 1 ? "спомен" : "спомена"}" ${locked ? "disabled" : ""}>
+              <span class="month-tab-label">МЕСЕЦ</span><strong>${String(m + 1).padStart(2, "0")}</strong>
+              <span class="month-dot${count ? " has-memories" : ""}" aria-hidden="true"></span>
+            </button>`;
+          }).join("")}
+        </div>
+      </nav>
+      <section class="month-album" aria-labelledby="month-title">
+        <div class="album-heading">
+          <div><p class="section-kicker">${getTimelineLabel(month)}</p><h2 id="month-title" tabindex="-1">Месец ${month + 1}<span class="heading-dot">.</span></h2>
+          <p class="album-caption">${items.length ? `${items.length} ${items.length === 1 ? "малък миг, запазен" : "малки мига, запазени"} завинаги.` : "Още една страница от нейната история."}</p></div>
+          <div class="month-stepper" aria-label="Смяна на месеца">
+            <button type="button" class="btn btn-secondary" data-month-trigger="${month - 1}" aria-label="Предишен месец" ${month === 0 || locked ? "disabled" : ""}>←</button>
+            <button type="button" class="btn btn-secondary" data-month-trigger="${month + 1}" aria-label="Следващ месец" ${month === 59 || locked ? "disabled" : ""}>→</button>
+          </div>
+        </div>
+        ${canUploadToGallery(state) ? `
+          <section class="album-upload" data-upload-drop-zone aria-label="Качване в Месец ${month + 1}">
+            <div class="upload-intro"><span class="upload-symbol" aria-hidden="true">＋</span><div><h3>Добави спомени в Месец ${month + 1}</h3><p>Пусни снимките тук или ги избери от телефона.</p></div></div>
+            <label class="btn btn-primary choose-files">Избери снимки<input class="upload-file-input" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.avif,.gif,.mp4,.mov,.webm,.m4v" ${state.uploading ? "disabled" : ""}></label>
+            <p class="upload-format-hint">JPG, PNG, WebP, AVIF, GIF или видео. За HEIC избери JPG при експортиране.</p>
+            <div id="upload-queue" class="upload-queue"></div>
+          </section>` : `<p class="viewer-note">Разглеждаш семейния албум. Снимки могат да добавят администраторите.</p>`}
+        <p id="upload-notice" class="upload-notice" role="status" data-tone="${state.uploadNotice?.tone || ""}">${escapeHtml(state.uploadNotice?.message || "")}</p>
+        ${items.length ? `<div class="month-grid">${items.map((photo, i) => buildPhotoCardMarkup(photo, {title: `Месец ${month + 1} · Спомен ${i + 1}`, showMeta: false, priority: i === 0})).join("")}</div>` : `
+          <div class="album-empty"><span class="empty-flower" aria-hidden="true">✿</span><h3>Малките мигове започват тук.</h3><p>${canUploadToGallery(state) ? `Добави първите снимки за Месец ${month + 1}.<br>Те ще се появят само на тази страница.` : "Този месец още очаква своите първи снимки."}</p></div>`}
+        <p class="album-footnote">Месец ${month + 1} от 60 <span aria-hidden="true">·</span> Малко по малко, цял един свят.</p>
+      </section>`;
+    renderUploadQueue(state);
+  }
 
-    document.getElementById("detail-back")?.addEventListener("click", () => {
-      state.selectedMonth = null;
-      renderGalleryState(content, null, state);
-      window.scrollTo(0, 0);
-    });
+  function renderUploadQueue(state) {
+    const queue = document.getElementById("upload-queue");
+    if (!queue) return;
+    queue.innerHTML = state.uploadQueue.length ? `
+      <div class="queue-heading"><strong>${state.uploadQueue.length} ${state.uploadQueue.length === 1 ? "избран файл" : "избрани файла"} за Месец ${state.selectedMonth + 1}</strong><span>Първо качи или откажи избраните файлове, за да смениш месеца.</span></div>
+      <ul class="queue-list">${state.uploadQueue.map(item => `<li class="queue-item" data-status="${item.status}">
+        ${item.preview ? `<img src="${escapeHtml(item.preview)}" alt="" loading="lazy">` : `<span class="queue-file-icon" aria-hidden="true">▧</span>`}
+        <span class="queue-filename">${escapeHtml(item.file.name)}</span><span class="queue-status">${escapeHtml(item.error || ({pending: "Готово за качване", uploading: "Качва се…", uploaded: "Качено", duplicate: "Вече е в албума", failed: "Неуспешно"}[item.status]))}</span>
+      </li>`).join("")}</ul>
+      ${state.uploading ? `<progress max="${state.uploadQueue.length}" value="${state.uploadQueue.filter(item => ["uploaded", "duplicate", "failed"].includes(item.status)).length}" aria-label="Качени файлове"></progress><p role="status">Качваме в Месец ${state.selectedMonth + 1}. Остави страницата отворена.</p>` : `<div class="queue-actions"><button class="btn btn-primary" data-upload-start type="button">Качи ${state.uploadQueue.length} в Месец ${state.selectedMonth + 1}</button><button class="btn btn-secondary" data-upload-cancel type="button">Откажи избраните</button></div>`}` : "";
   }
 
   function renderTestGallery(content, manifest, visiblePhotos) {
@@ -641,12 +508,14 @@
     viewer.setAttribute("role", "dialog");
     viewer.setAttribute("aria-modal", "true");
     viewer.setAttribute("aria-labelledby", "viewer-title");
+    const isBg = document.documentElement.lang === "bg";
     viewer.innerHTML = `
       <div class="viewer-backdrop" data-viewer-close></div>
       <div class="viewer-card">
-        <button class="viewer-close" type="button" aria-label="Close" data-viewer-close>&times;</button>
-        <button class="viewer-nav viewer-nav-prev" type="button" aria-label="Previous" data-viewer-nav="-1">&#10094;</button>
-        <button class="viewer-nav viewer-nav-next" type="button" aria-label="Next" data-viewer-nav="1">&#10095;</button>
+        <p id="viewer-title" class="viewer-title"></p>
+        <button class="viewer-close" type="button" aria-label="${isBg ? "Затвори" : "Close"}" data-viewer-close>&times;</button>
+        <button class="viewer-nav viewer-nav-prev" type="button" aria-label="${isBg ? "Предишна снимка" : "Previous"}" data-viewer-nav="-1">&#10094;</button>
+        <button class="viewer-nav viewer-nav-next" type="button" aria-label="${isBg ? "Следваща снимка" : "Next"}" data-viewer-nav="1">&#10095;</button>
         <div class="viewer-frame">
           <div class="viewer-stage" id="viewer-stage">
             <div class="viewer-media">
@@ -674,6 +543,8 @@
     const viewerStage = viewer.querySelector("#viewer-stage");
 
     viewer.hidden = true;
+    const shell = document.querySelector(".shell");
+    if (shell) shell.inert = false;
     document.body.style.overflow = "";
 
     if (viewerImage) {
@@ -816,6 +687,8 @@
       const index = triggers.indexOf(trigger);
       renderViewerAt(index >= 0 ? index : 0);
       viewer.hidden = false;
+      const shell = document.querySelector(".shell");
+      if (shell) shell.inert = true;
       document.body.style.overflow = "hidden";
       viewer.querySelector(".viewer-close")?.focus();
     }
@@ -878,6 +751,13 @@
         return;
       }
 
+      if (event.key === "Tab") {
+        const controls = [...viewer.querySelectorAll("button:not(:disabled), video[controls]:not([hidden])")].filter(node => node.getClientRects().length);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        return;
+      }
       if (event.key === "Escape") {
         closeViewer();
         return;
@@ -894,37 +774,24 @@
     });
   }
 
-  async function fetchManifest(session, options = {}) {
-    const collection = getRequestedCollection();
-    
-    if (!options.refreshToken) {
-      const cached = readCachedManifest(collection);
-      if (cached) return cached;
-    }
-
-    const requestUrl = new URL(getManifestUrl());
-
-    if (options.refreshToken) {
-      requestUrl.searchParams.set("refresh", sanitizeRefreshToken(options.refreshToken));
-    }
-
-    const response = await fetch(requestUrl.toString(), {
-      headers: {
-        Authorization: `Bearer ${session.tokens?.id_token || ""}`,
-      },
+  async function fetchManifest(session) {
+    // Refresh metadata without changing the version of immutable media URLs.
+    const response = await fetch(getManifestUrl(), {
+      headers: { Authorization: `Bearer ${session.tokens?.id_token || ""}` },
       cache: "no-store",
     });
-
     const manifest = await response.json().catch(() => null);
-
     if (!response.ok) {
-      throw new Error(manifest?.error || "The gallery backend rejected this session.");
+      const error = new Error(response.status === 403
+        ? "Този профил няма достъп до албума. След промяна на групата излез и влез отново."
+        : response.status === 401 ? "Сесията изтече. Влез отново, за да отвориш албума."
+        : "Албумът не се зареди. Опитай отново след малко.");
+      error.status = response.status;
+      throw error;
     }
-
-    if (manifest) {
-      writeCachedManifest(collection, manifest);
+    if (!manifest || !["months", "test"].includes(manifest.collection) || !Array.isArray(manifest.photos) || !Array.isArray(manifest.heroPhotos) || typeof manifest.user?.canUpload !== "boolean") {
+      throw new Error("Получихме непълен албум. Опитай отново.");
     }
-
     return manifest;
   }
 
@@ -948,32 +815,6 @@
     }
 
     return body;
-  }
-
-  function setUploadMessage(form, message, tone = "") {
-    const messageElement = form?.querySelector("[data-upload-message]");
-
-    if (!messageElement) {
-      return;
-    }
-
-    messageElement.textContent = message || "";
-    messageElement.dataset.tone = tone;
-  }
-
-  function setUploadBusy(form, isBusy) {
-    form?.closest("[data-upload-drop-zone]")?.classList.toggle("is-uploading", isBusy);
-    form?.querySelectorAll("input, button").forEach((control) => {
-      control.disabled = isBusy;
-    });
-  }
-
-  function getDroppedFiles(event) {
-    return Array.from(event.dataTransfer?.files || []).filter((file) => file && file.size > 0);
-  }
-
-  function getSelectedFiles(input) {
-    return Array.from(input?.files || []).filter((file) => file && file.size > 0);
   }
 
   async function uploadSingleFile(session, file, month, uploadKind) {
@@ -1033,19 +874,7 @@
     }
 
     button.disabled = isRefreshing;
-    button.textContent = isRefreshing ? "Опресняване..." : "Ръчно опресняване";
-  }
-
-  function applyCollectionCopy(collection, manifest, state) {
-    const status = document.getElementById("gallery-status");
-
-    if (collection === "test") {
-      if (status) status.textContent = "Творческа тестова колекция";
-    } else {
-      if (status && state.selectedMonth === null) {
-        status.textContent = "Вашите спомени, подредени по месеци.";
-      }
-    }
+    button.textContent = isRefreshing ? "Обновяваме…" : "Обнови албума";
   }
 
   function renderGalleryState(content, status, state) {
@@ -1059,273 +888,220 @@
         status.textContent = `Показване на ${visiblePhotos.length} снимки.`;
       }
     } else {
-      if (state.selectedMonth !== null) {
-        renderMonthDetail(content, state);
-        if (status) {
-          status.textContent = `Преглед на ${MONTH_NAMES[state.selectedMonth]}.`;
-        }
-      } else {
-        renderMonthOverview(content, state);
-        if (status) {
-          status.textContent = `Вашите спомени, подредени по месеци.`;
-        }
-      }
+      renderMonthDetail(content, state);
+      if (status) status.textContent = `Спомени от Месец ${state.selectedMonth + 1}`;
     }
   }
 
   async function initGalleryPage() {
     const auth = window.EverydayLillyAuth;
     const requestedCollection = getRequestedCollection();
-    const signoutButton = document.getElementById("gallery-signout");
+    const content = document.getElementById("gallery-content");
+    const status = document.getElementById("gallery-status");
     const refreshButton = document.getElementById("gallery-refresh");
     const filterContainer = document.getElementById("gallery-media-filters");
-    const status = document.getElementById("gallery-status");
-    const content = document.getElementById("gallery-content");
-    const userPill = document.getElementById("gallery-user");
-    const state = {
-      requestedCollection,
-      actualCollection: requestedCollection,
-      activeFilter: "all",
-      refreshToken: readRefreshToken(requestedCollection),
-      manifest: null,
-      selectedMonth: null,
-      overviewMonthIndex: new Date().getMonth(),
-    };
+    if (!auth || !content) return;
+    let session = await auth.getSession();
+    if (!session) { window.location.replace("/"); return; }
+    const account = getAccountKey(session);
+    const state = { requestedCollection, actualCollection: requestedCollection, selectedMonth: null, activeFilter: "all", manifest: null, uploadQueue: [], uploading: false, loading: false, uploadNotice: null };
 
-    if (!auth) {
-      if (status) status.textContent = "Системна грешка: помощникът за вход не зареди.";
-      if (content) {
-        content.className = "loading-state";
-        content.textContent = "Моля, опитайте отново по-късно.";
-      }
-      return;
+    function clearQueue() {
+      state.uploadQueue.forEach(item => { if (item.preview) URL.revokeObjectURL(item.preview); });
+      state.uploadQueue = [];
     }
 
-    const session = await auth.getSession();
-    if (!session) {
-      window.location.replace("/");
-      return;
+    async function currentSession() {
+      const next = await auth.getSession();
+      if (!next || getAccountKey(next) !== account) {
+        clearQueue();
+        dismissViewer();
+        content.replaceChildren();
+        window.location.replace("/");
+        throw Object.assign(new Error("Сесията се промени. Влез отново."), { status: 401 });
+      }
+      session = next;
+      return next;
     }
 
-    if (signoutButton) {
-      signoutButton.addEventListener("click", () => {
-        auth.signOut({ logoutUri: `${window.location.origin}/` });
-      });
-    }
-
-    async function loadManifest(options = {}) {
-      if (refreshButton) updateRefreshButton(refreshButton, true);
-
-      try {
-        state.manifest = await fetchManifest(session, {
-          refreshToken: state.refreshToken,
-        });
-      } catch (error) {
-        if (status) status.textContent = "Грешка при зареждане на архива.";
-        if (content) {
-          content.className = "loading-state";
-          content.textContent = error.message || "Възникна проблем. Моля, влезте отново.";
-        }
-        if (refreshButton) updateRefreshButton(refreshButton, false);
-        return false;
-      }
-
-      const actualCollection = normalizeCollection(state.manifest.collection);
-      if (state.requestedCollection !== actualCollection) {
-        window.location.replace(ROUTES[actualCollection]);
-        return false;
-      }
-
-      state.actualCollection = actualCollection;
-      applyGalleryBackground(state.manifest);
-      updateGalleryChrome(actualCollection, state.manifest, session);
-
-      state.activeFilter = ensureAvailableFilter(state.activeFilter, state.manifest.photos || []);
-      if (filterContainer) {
-        const showFilters = actualCollection === "test";
-        filterContainer.style.display = showFilters ? "" : "none";
-        if (showFilters) {
-          renderFilters(filterContainer, state.manifest.photos || [], state.activeFilter);
-        }
-      }
-      
+    function render() {
       renderGalleryState(content, status, state);
-      if (content) {
-        enableViewer(content);
-      }
-      if (refreshButton) updateRefreshButton(refreshButton, false);
-      return true;
+      if (refreshButton) refreshButton.disabled = state.uploading || state.loading || state.uploadQueue.length > 0;
     }
 
-    async function handleMonthUpload(form, files) {
-      const month = Number.parseInt(form?.dataset.uploadMonth || "", 10);
-      const uploadKind = form?.dataset.uploadKind === "hero" ? "hero" : "photo";
-      const selectedFiles = uploadKind === "hero" ? files.slice(0, 1) : files;
+    function selectMonth(month, focus = false) {
+      if (month === null || state.uploading || state.uploadQueue.length) return;
+      state.selectedMonth = month;
+      state.uploadNotice = null;
+      rememberMonth(month, session);
+      render();
+      if (focus) document.getElementById("month-title")?.focus({ preventScroll: true });
+    }
 
-      if (!Number.isInteger(month) || month < 0 || month >= GALLERY_MONTH_COUNT) {
-        setUploadMessage(form, `Избери месец между 1 и ${GALLERY_MONTH_COUNT}.`, "error");
-        return;
-      }
+    document.getElementById("gallery-signout")?.addEventListener("click", () => {
+      if (state.uploading) return;
+      clearQueue();
+      auth.signOut({ logoutUri: `${window.location.origin}/` });
+    });
 
-      if (!selectedFiles.length) {
-        setUploadMessage(form, "Избери файл за качване.", "error");
-        return;
-      }
-
-      setUploadBusy(form, true);
-
-      if (uploadKind === "hero" && files.length > 1) {
-        setUploadMessage(form, "Качваме първия файл като hero image...", "");
-      } else {
-        setUploadMessage(form, `Подготвяме ${selectedFiles.length} файл${selectedFiles.length === 1 ? "" : "а"}...`, "");
-      }
-
-      let uploadedCount = 0;
-      let duplicateCount = 0;
-      let lastError = null;
-
-      try {
-        for (let index = 0; index < selectedFiles.length; index += 1) {
-          const file = selectedFiles[index];
-          setUploadMessage(form, `Качване ${index + 1}/${selectedFiles.length}: ${file.name}`, "");
-
+    // A remembered account change or logout in another tab must not leave media visible.
+    window.addEventListener("storage", event => {
+      if (event.key === null || event.key === "everydayLillyAuth:session" || event.key === "everydayLillyAuth:logout") {
+        if (event.key === "everydayLillyAuth:session") {
           try {
-            await uploadSingleFile(session, file, month, uploadKind);
-            uploadedCount += 1;
-          } catch (error) {
-            if (error.status === 409 || error.status === 412) {
-              duplicateCount += 1;
-              lastError = error;
-              continue;
-            }
+            const stored = JSON.parse(localStorage.getItem("everydayLillyAuth:session") || "null");
+            if (stored && getAccountKey(stored) === account) return;
+          } catch (error) {}
+        }
+        clearQueue();
+        dismissViewer();
+        content.replaceChildren();
+        window.location.replace("/");
+      }
+    });
+    window.addEventListener("beforeunload", event => {
+      if (state.uploading || state.uploadQueue.length) { event.preventDefault(); event.returnValue = ""; }
+    });
 
-            throw error;
+    async function loadManifest() {
+      if (state.loading) return;
+      state.loading = true;
+      updateRefreshButton(refreshButton, true);
+      try {
+        const manifest = await fetchManifest(await currentSession());
+        await currentSession();
+        state.manifest = manifest;
+        state.actualCollection = manifest.collection;
+        if (requestedCollection !== manifest.collection) { window.location.replace(ROUTES[manifest.collection]); return; }
+        if (state.selectedMonth === null) {
+          state.selectedMonth = getInitialMonth(manifest, session);
+          if (manifest.collection === "months") rememberMonth(state.selectedMonth, session);
+        }
+        if (manifest.collection === "test") applyGalleryBackground(manifest);
+        updateGalleryChrome(manifest.collection, manifest, session);
+        if (filterContainer) {
+          filterContainer.style.display = manifest.collection === "test" ? "" : "none";
+          state.activeFilter = ensureAvailableFilter(state.activeFilter, manifest.photos);
+          renderFilters(filterContainer, manifest.photos, state.activeFilter);
+        }
+        render();
+        enableViewer(content);
+      } catch (error) {
+        if (error.status === 401 || error.status === 403 || !state.manifest) {
+          state.manifest = null;
+          clearQueue();
+          dismissViewer();
+          content.className = "loading-state";
+          content.textContent = error.message || "Албумът не се зареди. Опитай отново.";
+        }
+        if (status) status.textContent = error.message || "Не успяхме да обновим албума. Опитай отново.";
+      } finally {
+        state.loading = false;
+        updateRefreshButton(refreshButton, false);
+        if (refreshButton) refreshButton.disabled = state.uploading || state.uploadQueue.length > 0;
+      }
+    }
+
+    function stageFiles(files) {
+      if (state.uploading || !canUploadToGallery(state)) return;
+      const selected = Array.from(files || []);
+      if (!selected.length) return;
+      clearQueue();
+      const supported = /\.(avif|gif|jpe?g|m4v|mov|mp4|png|webm|webp)$/i;
+      let rejected = 0;
+      for (const file of selected) {
+        if (!file.size || !supported.test(file.name)) { rejected += 1; continue; }
+        if (state.uploadQueue.some(item => item.file.name === file.name && item.file.size === file.size && item.file.lastModified === file.lastModified)) continue;
+        state.uploadQueue.push({ file, status: "pending", preview: /^image\//.test(file.type) ? URL.createObjectURL(file) : "" });
+      }
+      state.uploadNotice = rejected ? {tone: "error", message: `${rejected} файла не са добавени. Избери JPG, PNG, WebP, AVIF, GIF или поддържано видео. За HEIC експортирай като JPG.`} : null;
+      render();
+    }
+
+    async function uploadQueue() {
+      if (state.uploading || !state.uploadQueue.length || !canUploadToGallery(state)) return;
+      state.uploading = true;
+      const month = state.selectedMonth;
+      const signout = document.getElementById("gallery-signout");
+      if (signout) signout.disabled = true;
+      render();
+      for (const item of state.uploadQueue) {
+        item.status = "uploading";
+        item.error = "";
+        renderUploadQueue(state);
+        try {
+          await uploadSingleFile(await currentSession(), item.file, month, "photo");
+          item.status = "uploaded";
+        } catch (error) {
+          item.status = [409, 412].includes(error.status) ? "duplicate" : "failed";
+          item.error = item.status === "failed" ? "Неуспешно — опитай отново" : "";
+          if (error.status === 401 || error.status === 403) {
+            for (const pending of state.uploadQueue) {
+              if (pending.status === "pending") pending.status = "failed";
+              if (pending.status === "failed") pending.error = "Влез отново, за да продължиш";
+            }
+            break;
           }
         }
-
-        if (uploadedCount > 0) {
-          const duplicateCopy = duplicateCount ? ` ${duplicateCount} вече съществува${duplicateCount === 1 ? "" : "т"}.` : "";
-          setUploadMessage(form, `Готово: качени ${uploadedCount}.${duplicateCopy} Обновяваме...`, "success");
-          clearCachedManifest(state.actualCollection);
-          state.selectedMonth = month;
-          state.refreshToken = createRefreshToken();
-          writeRefreshToken(state.actualCollection, state.refreshToken);
-          await loadManifest({ manualRefresh: true });
-          return;
-        }
-
-        const duplicateOnly = duplicateCount > 0
-          ? "Всички избрани файлове вече съществуват за този месец."
-          : lastError?.message || "Качването не успя.";
-        setUploadMessage(form, duplicateOnly, "error");
-      } catch (error) {
-        setUploadMessage(form, error.message || "Качването не успя.", "error");
-      } finally {
-        setUploadBusy(form, false);
-        const input = form?.querySelector(".upload-file-input");
-        if (input) {
-          input.value = "";
-        }
+        renderUploadQueue(state);
       }
+      const uploaded = state.uploadQueue.filter(item => item.status === "uploaded").length;
+      const duplicate = state.uploadQueue.filter(item => item.status === "duplicate").length;
+      const failed = state.uploadQueue.filter(item => item.status === "failed");
+      state.uploadQueue.filter(item => item.status !== "failed").forEach(item => { if (item.preview) URL.revokeObjectURL(item.preview); });
+      state.uploadQueue = failed;
+      state.uploading = false;
+      if (signout) signout.disabled = false;
+      state.uploadNotice = { tone: failed.length ? "error" : "success", message: `${uploaded} ${uploaded === 1 ? "качен файл" : "качени файла"} в Месец ${month + 1}.${duplicate ? ` ${duplicate} вече са в албума.` : ""}${failed.length ? ` ${failed.length} ${failed.length === 1 ? "файл не успя" : "файла не успяха"}. Можеш да опиташ отново.` : ""}` };
+      if (uploaded || duplicate) await loadManifest();
+      if (state.manifest) render();
     }
 
-    filterContainer?.addEventListener("click", (event) => {
-      const filterButton = event.target.closest("[data-gallery-filter]");
-
-      if (!filterButton || !state.manifest) {
-        return;
-      }
-
-      state.activeFilter = ensureAvailableFilter(filterButton.dataset.galleryFilter, state.manifest.photos || []);
-      renderFilters(filterContainer, state.manifest.photos || [], state.activeFilter);
-      renderGalleryState(content, status, state);
-    });
-
-    content?.addEventListener("click", (event) => {
-      const flipBtn = event.target.closest("[data-flip]");
-      if (flipBtn) {
-        const delta = Number.parseInt(flipBtn.dataset.flip, 10);
-        state.overviewMonthIndex = Math.max(0, Math.min(11, state.overviewMonthIndex + delta));
-        renderGalleryState(content, status, state);
-        return;
-      }
-
-      const trigger = event.target.closest("[data-month-trigger]");
-      if (trigger) {
-        state.selectedMonth = Number.parseInt(trigger.dataset.monthTrigger, 10);
-        renderGalleryState(content, status, state);
+    content.addEventListener("click", event => {
+      if (event.target.closest("[data-upload-start]")) { uploadQueue(); return; }
+      if (event.target.closest("[data-upload-cancel]")) { if (!state.uploading) { clearQueue(); state.uploadNotice = null; render(); } return; }
+      const month = event.target.closest("[data-month-trigger]");
+      if (month) {
+        selectMonth(parseGalleryMonth(month.dataset.monthTrigger));
+        content.querySelector(`.month-tab[data-month-trigger="${state.selectedMonth}"]`)?.focus({ preventScroll: true });
       }
     });
-
-    content?.addEventListener("change", async (event) => {
-      const input = event.target.closest(".upload-file-input");
-
-      if (!input) {
-        return;
+    content.addEventListener("change", event => {
+      if (event.target.matches("#gallery-year")) {
+        selectMonth(Number(event.target.value) * 12 + state.selectedMonth % 12);
+        document.getElementById("gallery-year")?.focus({ preventScroll: true });
       }
-
-      const form = input.closest("[data-month-upload-form]");
-      await handleMonthUpload(form, getSelectedFiles(input));
+      if (event.target.matches(".upload-file-input")) stageFiles(event.target.files);
     });
-
-    content?.addEventListener("dragenter", (event) => {
-      const dropZone = event.target.closest("[data-upload-drop-zone]");
-
-      if (!dropZone) {
-        return;
-      }
-
+    // Arrow keys move between months while focus is within the month selector.
+    content.addEventListener("keydown", event => {
+      if (!event.target.matches("[data-month-trigger]") || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
-      dropZone.classList.add("is-dragover");
+      const next = event.key === "Home" ? 0 : event.key === "End" ? 59 : state.selectedMonth + (event.key === "ArrowRight" ? 1 : -1);
+      selectMonth(parseGalleryMonth(next));
+      content.querySelector(`.month-tab[data-month-trigger="${state.selectedMonth}"]`)?.focus();
     });
-
-    content?.addEventListener("dragover", (event) => {
-      const dropZone = event.target.closest("[data-upload-drop-zone]");
-
-      if (!dropZone) {
-        return;
-      }
-
-      event.preventDefault();
-      dropZone.classList.add("is-dragover");
+    for (const type of ["dragenter", "dragover", "dragleave", "drop"]) {
+      content.addEventListener(type, event => {
+        const zone = event.target.closest("[data-upload-drop-zone]");
+        if (!zone) return;
+        event.preventDefault();
+        zone.classList.toggle("is-dragover", type === "dragenter" || type === "dragover");
+        if (type === "drop") stageFiles(event.dataTransfer?.files);
+      });
+    }
+    filterContainer?.addEventListener("click", event => {
+      const button = event.target.closest("[data-gallery-filter]");
+      if (!button || !state.manifest) return;
+      state.activeFilter = ensureAvailableFilter(button.dataset.galleryFilter, state.manifest.photos);
+      renderFilters(filterContainer, state.manifest.photos, state.activeFilter);
+      render();
     });
-
-    content?.addEventListener("dragleave", (event) => {
-      const dropZone = event.target.closest("[data-upload-drop-zone]");
-
-      if (!dropZone || dropZone.contains(event.relatedTarget)) {
-        return;
-      }
-
-      dropZone.classList.remove("is-dragover");
-    });
-
-    content?.addEventListener("drop", async (event) => {
-      const dropZone = event.target.closest("[data-upload-drop-zone]");
-
-      if (!dropZone) {
-        return;
-      }
-
-      event.preventDefault();
-      dropZone.classList.remove("is-dragover");
-      const form = dropZone.querySelector("[data-month-upload-form]");
-      await handleMonthUpload(form, getDroppedFiles(event));
-    });
-
-    refreshButton?.addEventListener("click", async () => {
-      state.refreshToken = createRefreshToken();
-      writeRefreshToken(state.actualCollection, state.refreshToken);
-      if (status) status.textContent = "Опресняване...";
-      await loadManifest({ manualRefresh: true });
-    });
-
+    refreshButton?.addEventListener("click", () => { if (!state.uploading && !state.uploadQueue.length) loadManifest(); });
     await loadManifest();
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    if (document.body.dataset.galleryMode) {
-      initGalleryPage();
-    }
+    if (document.body.dataset.galleryMode) initGalleryPage();
   });
 })();

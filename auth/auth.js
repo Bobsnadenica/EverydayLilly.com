@@ -93,6 +93,10 @@
   }
 
   function clearSession() {
+    try {
+      Object.keys(localStorage).filter(key => key.startsWith("everyday-lilly.gallery-manifest.") || key.startsWith("everyday-lilly.gallery-refresh."))
+        .forEach(key => localStorage.removeItem(key));
+    } catch (error) {}
     sessionStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(SESSION_KEY);
   }
@@ -524,6 +528,7 @@
 
   function signOut(options = {}) {
     const config = getConfig(options);
+    try { localStorage.setItem("everydayLillyAuth:logout", String(Date.now())); } catch (error) {}
 
     clearPendingState();
     clearSession();
