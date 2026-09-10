@@ -7,6 +7,23 @@ html { background: #faf8f3; }
 }
 .family-album *, .family-album *::before, .family-album *::after { box-sizing: border-box; }
 .family-album [hidden] { display: none !important; }
+/* One fixed sky follows the whole album; all decoration stays behind its controls. */
+.album-atmosphere { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; user-select: none; }
+.album-atmosphere::before {
+  content: ""; position: absolute; inset: -6%;
+  background: radial-gradient(ellipse at 8% 22%, #e9c99250, transparent 48%), radial-gradient(ellipse at 88% 55%, #d7e4cf66, transparent 46%), radial-gradient(ellipse at 40% 95%, #edd4cd50, transparent 45%);
+  animation: album-sky-drift 32s ease-in-out infinite alternate;
+}
+.album-atmosphere i { position: absolute; color: #b39563; font: normal 13px Georgia, serif; opacity: .2; animation: album-star-drift 18s ease-in-out infinite alternate; }
+.album-atmosphere i:nth-child(1) { left: 3%; top: 20%; }
+.album-atmosphere i:nth-child(2) { left: 94%; top: 12%; font-size: 9px; animation-delay: -9s; }
+.album-atmosphere i:nth-child(3) { left: 16%; top: 62%; font-size: 10px; animation-delay: -5s; }
+.album-atmosphere i:nth-child(4) { left: 87%; top: 72%; animation-delay: -13s; }
+.album-atmosphere i:nth-child(5) { left: 42%; top: 91%; animation-delay: -3s; }
+.album-atmosphere i:nth-child(6) { left: 72%; top: 39%; font-size: 8px; animation-delay: -11s; }
+.album-atmosphere.is-sleeping::before, .album-atmosphere.is-sleeping i { animation-play-state: paused; }
+@keyframes album-sky-drift { from { transform: translate3d(-2%, -1%, 0); opacity: .55; } to { transform: translate3d(2%, 2%, 0); opacity: 1; } }
+@keyframes album-star-drift { from { transform: translate3d(0, 9px, 0) rotate(-8deg); opacity: .1; } to { transform: translate3d(5px, -9px, 0) rotate(8deg); opacity: .32; } }
 .family-album .shell { width: min(1216px, calc(100% - 80px)); padding: 0 0 24px; }
 .family-album .topbar { position: static; margin: 0; padding: 18px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none; background: none; backdrop-filter: none; }
 .family-album .brand { display: inline-flex; align-items: center; gap: 13px; font: 600 27px "Playfair Display", Georgia, serif; }
@@ -213,6 +230,7 @@ html { background: #faf8f3; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .album-atmosphere { display: none; }
   .family-album *, .family-album *::before, .family-album *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 

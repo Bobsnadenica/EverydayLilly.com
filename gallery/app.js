@@ -1308,6 +1308,12 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    const atmosphere = document.querySelector(".album-atmosphere");
+    if (atmosphere) {
+      const syncAtmosphere = () => atmosphere.classList.toggle("is-sleeping", document.hidden);
+      document.addEventListener("visibilitychange", syncAtmosphere);
+      syncAtmosphere();
+    }
     if (document.body.dataset.galleryMode) initGalleryPage();
   });
 })();
