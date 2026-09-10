@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-11 Europe/Sofia
 
+## Animated growth ribbon — 2026-09-11
+
+- Owner requested a magical, child-friendly wheel that moves by itself. Added slow continuous scrolling (24 CSS pixels/second), a short rest then reversal at either end, lightly tilted framed photos, a warm glow and six tiny CSS stars. No external assets, extra API polling, or duplicated photo elements. Cached thumbnails remain the source.
+- Pause/play preference survives month rerenders in the current page. Hover/touch, keyboard focus, the photo viewer, queued uploads, hidden tabs and offscreen ribbons suspend motion. Reduced-motion changes stop autoplay and decorative animations. Native swipe/arrows/Home/End and original-photo viewing remain available.
+- Animation frames, observers, event listeners and delayed resumes are disposed on rerender/auth clearing/pagehide. Back-forward cache restores reauthorize/refetch the manifest and rebuild controls. Sub-pixel progress is accumulated independently of rounded browser scroll offsets. Pause-button child elements stay stable during focus changes so pointer clicks are not lost.
+- Five deterministic animation regressions cover rounded offsets/pause, visibility/viewer/cleanup, reduced motion, end reversal, and explicit resume after keyboard exploration. Full JavaScript suite has 20 tests. Browser fixture checks at desktop and 390×844 verify visible drift, pause/play, end positioning, photo-viewer pause, and no horizontal overflow. Synthetic QA media only. Assets use a new static version for publication.
+
 ## Gallery polish and durable previews — 2026-09-11
 
 - Supersedes the earlier browser-decoded video implementation: user still saw blank video tiles. The gallery now renders signed JPEG posters, with no video decoder or stream in grid tiles. Photo thumbnails also serve the growth strip; originals remain in the viewer.

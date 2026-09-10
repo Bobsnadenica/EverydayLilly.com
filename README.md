@@ -8,6 +8,8 @@ Architecture and live AWS configuration reviewed on **2026-09-10 (Europe/Sofia)*
 
 Empty months have faded numerals, a subtle blur and an outlined marker; they remain selectable for uploads. A small horizontal growth carousel sits below the month selector, ordered from the first month to the last. Dated backup filenames use their capture day for sorting; other files retain the existing modification-date/name fallback. Swipe, scroll, arrow buttons and keyboard navigation are supported, and tapping a frame opens the original in the viewer.
 
+The growth ribbon also glides automatically at a gentle pace, rests at either end, and reverses without duplicating photos. Warm light, tiny golden stars and lightly tilted photo cards give it a storybook feel. A pause/play control is available. Motion pauses on hover/touch/keyboard interaction, while a photo is open, during upload selection, and when the ribbon or tab is hidden. Reduced-motion preferences disable autoplay and decorative animation. The animation makes no API calls and reuses the existing cached previews.
+
 The selected-month grid now uses four desktop columns and three mobile columns, with short entrance animations and reduced-motion support. Its upload destination remains the selected month.
 
 Video tiles use stored JPEG posters instead of asking the browser to decode a video. A new S3-triggered Lambda generates private previews up to 640 pixels for monthly photos and videos. The manifest signs these preview URLs separately; the grid and growth strip lazy-load them, while the viewer opens originals. Immutable content-based keys preserve cache hits. New uploads trigger generation automatically, with a bounded metadata refresh after upload.

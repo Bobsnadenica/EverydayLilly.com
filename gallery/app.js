@@ -429,10 +429,13 @@
     const photos = getGrowthPhotos(state);
     if (!photos.length) return "";
     return `<section class="growth-wheel" aria-label="Лили расте — от първата до последната снимка">
-      <div class="growth-heading"><span class="section-kicker">Лили расте</span><div class="growth-controls">
+      <div class="growth-heading"><div class="growth-intro"><span class="section-kicker">Лили расте <span class="growth-wish" aria-hidden="true">✧</span></span><span class="growth-caption">Малко вълшебство, ден след ден.</span></div><div class="growth-controls">
+        <button type="button" class="growth-toggle" data-growth-toggle aria-label="Пауза на въртележката"><span aria-hidden="true">Ⅱ</span></button>
         <button type="button" data-growth-step="-1" aria-label="По-ранни снимки">←</button>
         <button type="button" data-growth-step="1" aria-label="По-нови снимки">→</button>
       </div></div>
+      <div class="growth-stage">
+      <div class="growth-stardust" aria-hidden="true"><i>✦</i><i>✧</i><i>✦</i><i>✧</i><i>✦</i><i>✧</i></div>
       <div class="growth-track" tabindex="0" aria-label="Плъзни за още спомени; използвай стрелките за навигация">
         ${photos.map(({ photo, month }, index) => `<button type="button" class="growth-frame" data-growth-index="${index}" data-growth-month="${month}"
           data-photo-trigger data-photo-group="growth" data-photo-kind="${getMediaKind(photo)}"
@@ -440,55 +443,131 @@
           aria-label="Отвори Месец ${month + 1} · Спомен ${index + 1}">
           <img src="${escapeHtml(photo.thumbnailUrl || photo.url)}" alt="" loading="lazy" decoding="async" width="80" height="96">
           <span>Месец ${month + 1}</span></button>`).join("")}
-      </div>
+      </div></div>
     </section>`;
   }
 
   function setupGrowthWheel(content, state) {
-    const track = content.querySelector(".growth-track");
-    if (!track) return;
+    const wheel = content.querySelector(".growth-wheel");
+    if (!wheel) return () => {};
+    const track = wheel.querySelector(".growth-track");
     const frames = [...track.querySelectorAll(".growth-frame")];
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const toggle = wheel.querySelector("[data-growth-toggle]");
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const listeners = new AbortController();
+    const listen = (node, name, callback, options = {}) => node.addEventListener(name, callback, { ...options, signal: listeners.signal });
     const step = () => frames.length > 1 ? frames[1].offsetLeft - frames[0].offsetLeft : 92;
+    state.growthPlaying ??= !motion.matches;
+    state.growthDirection ??= 1;
     frames.forEach(frame => { frame.tabIndex = -1; });
-    let current = -1;
-    let scheduled = false;
+    let current = -1, animation = 0, resumeTimer = 0, lastTime = 0;
+    let visible = false, hovered = false, pressed = false, disposed = false, restingUntil = 0, manualUntil = 0, driftPosition = 0;
+
     function update() {
-      scheduled = false;
       const next = Math.max(0, Math.min(frames.length - 1, Math.round(track.scrollLeft / step())));
+      if (next === current) return;
       if (current >= 0) { frames[current].classList.remove("is-current"); frames[current].tabIndex = -1; }
       frames[next].classList.add("is-current");
       frames[next].tabIndex = 0;
       current = next;
       state.growthIndex = next;
-      content.querySelector('[data-growth-step="-1"]').disabled = next === 0;
-      content.querySelector('[data-growth-step="1"]').disabled = next === frames.length - 1;
+      wheel.querySelector('[data-growth-step="-1"]').disabled = next === 0;
+      wheel.querySelector('[data-growth-step="1"]').disabled = next === frames.length - 1;
+    }
+
+    function syncMotion() {
+      if (disposed) return;
+      cancelAnimationFrame(animation);
+      animation = 0;
+      lastTime = 0;
+      toggle.hidden = motion.matches || frames.length < 2;
+      const focused = wheel.contains(document.activeElement) && document.activeElement !== toggle;
+      const playing = state.growthPlaying && !motion.matches && frames.length > 1 && visible && !document.hidden && !hovered && !pressed && !focused &&
+        !state.uploading && !state.uploadQueue.length && !document.querySelector(".viewer:not([hidden])") && performance.now() >= manualUntil;
+      toggle.setAttribute("aria-label", state.growthPlaying ? "Пауза на въртележката" : "Пусни въртележката");
+      toggle.firstElementChild.textContent = state.growthPlaying ? "Ⅱ" : "▷";
+      wheel.classList.toggle("is-drifting", Boolean(playing));
+      if (playing) { driftPosition = track.scrollLeft; animation = requestAnimationFrame(drift); }
+    }
+
+    function drift(now) {
+      // A small capped delta avoids a jump after a suspended/background frame.
+      const delta = lastTime ? Math.min(now - lastTime, 50) : 0;
+      lastTime = now;
+      if (now >= restingUntil) {
+        const end = (frames.length - 1) * step();
+        const next = driftPosition + state.growthDirection * delta * 0.024;
+        driftPosition = Math.max(0, Math.min(end, next));
+        track.scrollLeft = driftPosition;
+        if ((state.growthDirection > 0 && next >= end) || (state.growthDirection < 0 && next <= 0)) {
+          state.growthDirection *= -1;
+          restingUntil = now + 1800;
+        }
+        update();
+      }
+      animation = requestAnimationFrame(drift);
+    }
+
+    function pauseForInteraction() {
+      manualUntil = performance.now() + 7000;
+      clearTimeout(resumeTimer);
+      syncMotion();
+      resumeTimer = setTimeout(syncMotion, 7050);
     }
     function move(delta) {
-      track.scrollTo({ left: Math.max(0, Math.min(frames.length - 1, current + delta)) * step(), behavior: reducedMotion ? "instant" : "smooth" });
+      pauseForInteraction();
+      track.scrollTo({ left: Math.max(0, Math.min(frames.length - 1, current + delta)) * step(), behavior: motion.matches ? "instant" : "smooth" });
     }
-    content.querySelectorAll("[data-growth-step]").forEach(button => {
-      button.addEventListener("click", () => move(Number(button.dataset.growthStep) * 3));
+    wheel.querySelectorAll("[data-growth-step]").forEach(button => {
+      listen(button, "click", () => move(Number(button.dataset.growthStep) * 3));
     });
-    track.addEventListener("scroll", () => {
-      if (!scheduled) { scheduled = true; requestAnimationFrame(update); }
-    }, { passive: true });
-    track.addEventListener("keydown", event => {
+    listen(toggle, "click", () => {
+      state.growthPlaying = !state.growthPlaying;
+      manualUntil = 0;
+      syncMotion();
+    });
+    listen(track, "scroll", update, { passive: true });
+    listen(track, "pointerenter", event => { if (event.pointerType === "mouse") { hovered = true; syncMotion(); } });
+    listen(track, "pointerleave", () => { hovered = false; syncMotion(); });
+    listen(track, "pointerdown", () => { pressed = true; pauseForInteraction(); }, { passive: true });
+    ["pointerup", "pointercancel"].forEach(name => listen(window, name, () => {
+      if (pressed) { pressed = false; pauseForInteraction(); }
+    }, { passive: true }));
+    listen(wheel, "focusin", event => {
+      if (event.target !== toggle) state.growthPlaying = false;
+      syncMotion();
+    });
+    listen(wheel, "focusout", () => queueMicrotask(syncMotion));
+    listen(track, "keydown", event => {
       if (["Enter", " "].includes(event.key) && event.target === track) { event.preventDefault(); frames[current].click(); return; }
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
       track.focus({ preventScroll: true });
       move(event.key === "Home" ? -frames.length : event.key === "End" ? frames.length : event.key === "ArrowRight" ? 1 : -1);
     });
-    track.addEventListener("wheel", event => {
+    listen(track, "wheel", event => {
+      pauseForInteraction();
       if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
       const end = track.scrollWidth - track.clientWidth;
       if ((event.deltaY < 0 && track.scrollLeft <= 0) || (event.deltaY > 0 && track.scrollLeft >= end - 1)) return;
       event.preventDefault();
       track.scrollLeft += event.deltaY;
     }, { passive: false });
+    listen(document, "visibilitychange", syncMotion);
+    listen(window, "lilly:viewer-change", syncMotion);
+    listen(motion, "change", () => { if (motion.matches) state.growthPlaying = false; syncMotion(); });
+    const observer = new IntersectionObserver(entries => { visible = entries[0].intersectionRatio >= 0.25; syncMotion(); }, { threshold: 0.25 });
+    observer.observe(wheel);
     track.scrollLeft = (state.growthIndex || 0) * step();
     update();
+    syncMotion();
+    return () => {
+      disposed = true;
+      listeners.abort();
+      observer.disconnect();
+      cancelAnimationFrame(animation);
+      clearTimeout(resumeTimer);
+    };
   }
 
   function renderMonthDetail(content, state) {
@@ -641,6 +720,7 @@
     }
 
     viewerStage?.style.removeProperty("--viewer-backdrop-image");
+    window.dispatchEvent(new Event("lilly:viewer-change"));
   }
 
   function enableViewer(content) {
@@ -770,6 +850,7 @@
       const index = triggers.indexOf(trigger);
       renderViewerAt(index >= 0 ? index : 0);
       viewer.hidden = false;
+      window.dispatchEvent(new Event("lilly:viewer-change"));
       const shell = document.querySelector(".shell");
       if (shell) shell.inert = true;
       document.body.style.overflow = "hidden";
@@ -990,6 +1071,7 @@
     const state = { requestedCollection, actualCollection: requestedCollection, selectedMonth: null, activeFilter: "all", manifest: null, uploadQueue: [], uploading: false, loading: false, uploadNotice: null };
 
     let thumbnailRefreshTimer;
+    let stopGrowthWheel = () => {};
 
     function scheduleThumbnailRefresh(attempt = 0) {
       clearTimeout(thumbnailRefreshTimer);
@@ -1010,6 +1092,7 @@
       const next = await auth.getSession();
       if (!next || getAccountKey(next) !== account) {
         clearTimeout(thumbnailRefreshTimer);
+        stopGrowthWheel();
         clearQueue();
         dismissViewer();
         content.replaceChildren();
@@ -1021,8 +1104,9 @@
     }
 
     function render() {
+      stopGrowthWheel();
       renderGalleryState(content, status, state);
-      setupGrowthWheel(content, state);
+      stopGrowthWheel = setupGrowthWheel(content, state);
       if (refreshButton) refreshButton.disabled = state.uploading || state.loading || state.uploadQueue.length > 0;
     }
 
@@ -1038,6 +1122,7 @@
     document.getElementById("gallery-signout")?.addEventListener("click", () => {
       if (state.uploading) return;
       clearTimeout(thumbnailRefreshTimer);
+      stopGrowthWheel();
       clearQueue();
       auth.signOut({ logoutUri: `${window.location.origin}/` });
     });
@@ -1052,6 +1137,7 @@
           } catch (error) {}
         }
         clearTimeout(thumbnailRefreshTimer);
+        stopGrowthWheel();
         clearQueue();
         dismissViewer();
         content.replaceChildren();
@@ -1061,7 +1147,8 @@
     window.addEventListener("beforeunload", event => {
       if (state.uploading || state.uploadQueue.length) { event.preventDefault(); event.returnValue = ""; }
     });
-    window.addEventListener("pagehide", () => clearTimeout(thumbnailRefreshTimer));
+    window.addEventListener("pagehide", () => { clearTimeout(thumbnailRefreshTimer); stopGrowthWheel(); });
+    window.addEventListener("pageshow", event => { if (event.persisted) loadManifest(); });
 
     async function loadManifest() {
       if (state.loading) return;
@@ -1089,6 +1176,7 @@
       } catch (error) {
         if (error.status === 401 || error.status === 403 || !state.manifest) {
           state.manifest = null;
+          stopGrowthWheel();
           clearQueue();
           dismissViewer();
           content.className = "loading-state";
